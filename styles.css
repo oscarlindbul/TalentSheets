@@ -1,0 +1,501 @@
+/* ===== CSS Custom Properties for Light / Dark mode ===== */
+:root {
+  --bg-page: #e8e0d0;
+  --bg-body: #c8c0b0;
+  --bg-toolbar: #d5cfc2;
+  --text-color: #222;
+  --box-stroke: #444;
+  --box-fill: #f5f0e1;
+  --box-text: #222;
+  --overlay-grid: rgba(0,0,0,0.04);
+  --toolbar-border: #b0a890;
+  --btn-bg: #ddd8c8;
+  --btn-hover: #ccc5b0;
+  --input-bg: #fff;
+  --bridge-color: #666;
+  --checkbox-accent: #555;
+  --ranked-border: #888;
+}
+
+[data-theme="dark"] {
+  --bg-page: #1e1e1e;
+  --bg-body: #121212;
+  --bg-toolbar: #2a2a2a;
+  --text-color: #ddd;
+  --box-stroke: #aaa;
+  --box-fill: #2c2c2c;
+  --box-text: #ddd;
+  --overlay-grid: rgba(255,255,255,0.03);
+  --toolbar-border: #444;
+  --btn-bg: #3a3a3a;
+  --btn-hover: #505050;
+  --input-bg: #333;
+  --bridge-color: #aaa;
+  --checkbox-accent: #bbb;
+  --ranked-border: #888;
+}
+
+/* ===== Reset & base ===== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg-body);
+  color: var(--text-color);
+  font-family: sans-serif;
+  overflow-x: auto;
+  overflow-y: auto;
+  min-height: 100vh;
+}
+
+/* ===== Toolbar ===== */
+#toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--bg-toolbar);
+  border-bottom: 1px solid var(--toolbar-border);
+  flex-wrap: wrap;
+}
+
+#toolbar button {
+  background: var(--btn-bg);
+  color: var(--text-color);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 4px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s;
+}
+
+#toolbar button:hover {
+  background: var(--btn-hover);
+}
+
+#toolbar button.active {
+  outline: 2px solid #4a90d9;
+  background: var(--btn-hover);
+}
+
+#toolbar label {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#toolbar select, #toolbar input[type="color"], #toolbar input[type="number"] {
+  background: var(--input-bg);
+  color: var(--text-color);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 3px;
+  padding: 3px;
+}
+
+#grid-cols-input {
+  width: 52px;
+  text-align: center;
+}
+
+#grid-rows-input,
+#vgap-input,
+#box-w-input,
+#box-h-input {
+  width: 56px;
+  text-align: center;
+}
+
+#bridge-w-input {
+  width: 52px;
+  text-align: center;
+}
+
+#toolbar-spacer {
+  flex: 1;
+}
+
+/* ===== Page wrapper (handles fit-to-window scaling) ===== */
+#page-wrapper {
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 20px 0;
+}
+
+/* ===== Page container (sized by JS fitToWindow) ===== */
+#page-container {
+  position: relative;
+  background: var(--bg-page);
+  box-shadow: 0 2px 20px rgba(0,0,0,0.25);
+  overflow: hidden;
+}
+
+#two-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+#two-canvas svg, #two-canvas canvas {
+  display: block;
+}
+
+/* Grid lines — hidden during PDF export */
+.grid-line {
+  pointer-events: none;
+}
+body.pdf-exporting .grid-line {
+  display: none !important;
+}
+
+/* ===== HTML overlay (A1-space dimensions, CSS-transform-scaled by JS) ===== */
+#overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  /* width, height, transform set by fitToWindow() */
+}
+
+/* ===== Sheet header (top-left) ===== */
+#sheet-header {
+  position: absolute;
+  top: 42px;
+  left: 50px;
+  z-index: 10;
+}
+
+#sheet-title {
+  font-size: 32px;
+  font-weight: bold;
+  background: transparent;
+  border: none;
+  border-bottom: 2px dashed transparent;
+  color: var(--text-color);
+  outline: none;
+  padding: 4px 8px;
+  width: 600px;
+  font-family: inherit;
+}
+
+#sheet-title:focus {
+  border-bottom-color: var(--box-stroke);
+}
+
+/* ===== Sheet legend (top-right) ===== */
+#sheet-legend {
+  position: absolute;
+  top: 42px;
+  right: 50px;
+  z-index: 10;
+  border: 1.5px dashed var(--box-stroke);
+  border-radius: 6px;
+  padding: 10px 18px;
+  min-width: 200px;
+  background: var(--bg-page);
+  opacity: 0.92;
+}
+
+.legend-title {
+  font-weight: bold;
+  font-size: 15px;
+  margin-bottom: 6px;
+  color: var(--text-color);
+}
+
+.legend-item {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  color: var(--text-color);
+}
+
+.legend-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--checkbox-accent);
+}
+
+.legend-ranked {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  width: 16px;
+  height: 16px;
+  gap: 1px;
+  border: 1.5px solid var(--ranked-border);
+  border-radius: 2px;
+}
+
+.legend-ranked span {
+  background: var(--ranked-border);
+}
+
+.legend-line {
+  display: inline-block;
+  width: 28px;
+  height: 0;
+  border-top: 2.5px solid var(--bridge-color);
+}
+
+/* ===== Talent Box overlay ===== */
+.talent-box {
+  position: absolute;
+  cursor: grab;
+  user-select: none;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+}
+
+.talent-box.dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+}
+
+/* --- Header bar (checkbox + name) with type-coloured background --- */
+.talent-box .box-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 5px 8px;
+  flex-shrink: 0;
+  /* Clip top-right corner to match chamfered box outline */
+  clip-path: polygon(0 0, calc(100% - var(--chamfer, 14px)) 0, 100% var(--chamfer, 14px), 100% 100%, 0 100%);
+}
+
+/* Type colours */
+.talent-active  .box-header { background: #c94040; }
+.talent-passive .box-header { background: #3c78b5; }
+.talent-skill   .box-header { background: #7b4fbf; }
+
+/* Skill decoration — double border */
+.talent-skill .box-header {
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,0.35);
+}
+
+.talent-box .box-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.talent-box .box-name {
+  flex: 1;
+  font-weight: bold;
+  font-size: 14px;
+  text-align: center;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed transparent;
+  color: #fff;
+  outline: none;
+  padding: 1px calc(var(--chamfer, 14px)) 1px 4px;
+  font-family: inherit;
+  min-width: 0;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.3;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.talent-box .box-name::placeholder { color: rgba(255,255,255,0.6); }
+.talent-box .box-name:focus { border-bottom-color: rgba(255,255,255,0.6); }
+
+/* --- Body (description + ranked row) --- */
+.talent-box .box-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px 24px 10px;   /* bottom padding leaves room for cost */
+  min-height: 0;
+}
+
+/* Description */
+.talent-box .box-description {
+  flex: 1;
+  font-size: 13px;
+  background: transparent;
+  border: 1px dashed transparent;
+  color: var(--box-text);
+  outline: none;
+  resize: none;
+  padding: 4px;
+  font-family: inherit;
+  line-height: 1.4;
+  min-height: 30px;
+}
+
+.talent-box .box-description:focus {
+  border-color: var(--box-stroke);
+}
+
+/* Ranked row */
+.talent-box .box-ranked-row {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+}
+
+/* Ranked 2×2 grid indicator */
+.talent-box .ranked-indicator {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 1px;
+  border: 1.5px solid var(--ranked-border);
+  border-radius: 2px;
+  cursor: pointer;
+  opacity: 0.3;
+  transition: opacity 0.15s;
+}
+
+.talent-box .ranked-indicator.ranked {
+  opacity: 1;
+}
+
+.talent-box .ranked-indicator .ranked-cell {
+  background: var(--ranked-border);
+}
+
+/* --- Cost corner triangle (CSS, bottom-right) --- */
+.talent-box::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 36px;
+  height: 36px;
+  background: #000;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+[data-theme="dark"] .talent-box::after {
+  background: #fff;
+}
+
+/* --- Cost text aligned with triangle hypotenuse --- */
+.talent-box .box-cost {
+  position: absolute;
+  bottom: 4px;
+  right: 2px;
+  font-size: 11px;
+  font-weight: bold;
+  color: #fff;
+  outline: none;
+  cursor: text;
+  text-align: center;
+  min-width: 10px;
+  z-index: 3;
+  line-height: 1;
+  transform: rotate(-45deg);
+  transform-origin: center center;
+}
+
+[data-theme="dark"] .talent-box .box-cost {
+  color: #000;
+}
+
+/* Delete button */
+.talent-box .box-delete {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #c44;
+  color: #fff;
+  border: none;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+  cursor: pointer;
+  display: none;
+  z-index: 5;
+}
+
+.talent-box:hover .box-delete {
+  display: block;
+}
+
+/* --- Legend swatches --- */
+.legend-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 12px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.legend-swatch-skill {
+  box-shadow: inset 0 0 0 1.5px rgba(255,255,255,0.45);
+}
+
+/* --- Add Talent dropdown --- */
+#add-talent-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--bg-toolbar);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  z-index: 2000;
+  min-width: 130px;
+  padding: 4px 0;
+}
+
+.dropdown-menu.open {
+  display: block;
+}
+
+.dropdown-menu button {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-color);
+  padding: 7px 14px;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.dropdown-menu button:hover {
+  background: var(--btn-hover);
+}
+
+.dropdown-menu button[data-type="active"]  { color: #c94040; }
+.dropdown-menu button[data-type="passive"] { color: #3c78b5; }
+.dropdown-menu button[data-type="skill"]   { color: #7b4fbf; }

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Talent Sheet Generator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <div id="add-talent-wrapper">
+      <button id="btn-add-box" title="Add Talent Box">&#43; Add Talent &#9662;</button>
+      <div id="add-talent-menu" class="dropdown-menu">
+        <button data-type="active">&#9632; Active</button>
+        <button data-type="passive">&#9632; Passive</button>
+        <button data-type="skill">&#9632; Skill</button>
+      </div>
+    </div>
+    <button id="btn-toggle-theme" title="Toggle Light/Dark Mode">&#9790; Theme</button>
+    <button id="btn-save" title="Save to JSON">&#128190; Save</button>
+    <button id="btn-load" title="Load from JSON">&#128194; Load</button>
+    <input type="file" id="file-input" accept=".json" style="display:none">
+    <button id="btn-export-pdf" title="Export as A1 PDF">&#128462; Export PDF</button>
+    <span id="toolbar-spacer"></span>
+    <label id="grid-label">Cols:
+      <input type="number" id="grid-cols-input" value="10" min="1" max="30" step="1" title="Number of columns">
+    </label>
+    <label>Rows:
+      <input type="number" id="grid-rows-input" value="20" min="1" max="100" step="1" title="Number of rows">
+    </label>
+    <label>V-Gap:
+      <input type="number" id="vgap-input" value="16" min="0" max="200" step="1" title="Vertical gap between rows (px)">
+    </label>
+    <label>Box W:
+      <input type="number" id="box-w-input" value="200" min="60" max="600" step="10" title="Box width (px)">
+    </label>
+    <label>Box H:
+      <input type="number" id="box-h-input" value="140" min="60" max="600" step="10" title="Box height (px)">
+    </label>
+    <label>Bridge:
+      <input type="number" id="bridge-w-input" value="2.5" min="0.5" max="20" step="0.5" title="Bridge line width">
+    </label>
+    <label id="font-label">Font:
+      <select id="font-select">
+        <option value="serif">Serif</option>
+        <option value="sans-serif" selected>Sans-Serif</option>
+        <option value="monospace">Monospace</option>
+        <option value="Georgia">Georgia</option>
+        <option value="Palatino">Palatino</option>
+        <option value="Garamond">Garamond</option>
+      </select>
+    </label>
+    <label id="color-label">Box Stroke:
+      <input type="color" id="color-stroke" value="#444444">
+    </label>
+    <label id="fill-label">Box Fill:
+      <input type="color" id="color-fill" value="#f5f0e1">
+    </label>
+  </div>
+
+  <!-- Page wrapper handles fit-to-window scaling -->
+  <div id="page-wrapper">
+    <div id="page-container">
+      <div id="two-canvas"></div>
+      <div id="overlay">
+      <!-- Header area -->
+      <div id="sheet-header">
+        <input type="text" id="sheet-title" value="Talent Sheet" placeholder="Sheet Title">
+      </div>
+      <!-- Legend area -->
+      <div id="sheet-legend">
+        <div class="legend-title">Legend</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:#c94040"></span> Active Talent</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:#3c78b5"></span> Passive Talent</div>
+        <div class="legend-item"><span class="legend-swatch legend-swatch-skill" style="background:#7b4fbf"></span> Skill</div>
+        <div class="legend-item"><input type="checkbox" disabled> Acquired</div>
+        <div class="legend-item"><span class="legend-ranked"><span></span><span></span><span></span><span></span></span> Ranked Talent</div>
+        <div class="legend-item"><span class="legend-line"></span> Spec Pathway</div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+  <script src="two/two.min.js"></script>
+  <script src="box.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
