@@ -17,21 +17,24 @@
         <button data-type="skill">&#9632; Skill</button>
       </div>
     </div>
+    <div id="insert-symbol-wrapper">
+      <button id="btn-insert-symbol" title="Insert Genesys die symbol" disabled>&#9674; Dice &#9662;</button>
+      <div id="insert-symbol-menu" class="dropdown-menu">
+        <button data-symbol="ability"><span class="die-swatch die-ability">&#9670;</span> Ability</button>
+        <button data-symbol="difficulty"><span class="die-swatch die-difficulty">&#9670;</span> Difficulty</button>
+        <button data-symbol="proficiency"><span class="die-swatch die-proficiency">&#11043;</span> Proficiency</button>
+        <button data-symbol="challenge"><span class="die-swatch die-challenge">&#11043;</span> Challenge</button>
+        <button data-symbol="boost"><span class="die-swatch die-boost">&#9632;</span> Boost</button>
+        <button data-symbol="setback"><span class="die-swatch die-setback">&#9632;</span> Setback</button>
+      </div>
+    </div>
     <button id="btn-toggle-theme" title="Toggle Light/Dark Mode">&#9790; Theme</button>
+    <button id="btn-add-text" title="Click, then click on the page to place a text field">&#84; Add Text</button>
     <button id="btn-save" title="Save to JSON">&#128190; Save</button>
     <button id="btn-load" title="Load from JSON">&#128194; Load</button>
     <input type="file" id="file-input" accept=".json" style="display:none">
     <button id="btn-export-pdf" title="Export as A1 PDF">&#128462; Export PDF</button>
     <span id="toolbar-spacer"></span>
-    <label id="grid-label">Cols:
-      <input type="number" id="grid-cols-input" value="10" min="1" max="30" step="1" title="Number of columns">
-    </label>
-    <label>Rows:
-      <input type="number" id="grid-rows-input" value="20" min="1" max="100" step="1" title="Number of rows">
-    </label>
-    <label>V-Gap:
-      <input type="number" id="vgap-input" value="16" min="0" max="200" step="1" title="Vertical gap between rows (px)">
-    </label>
     <label>Box W:
       <input type="number" id="box-w-input" value="200" min="60" max="600" step="10" title="Box width (px)">
     </label>
@@ -42,7 +45,7 @@
       <input type="number" id="bridge-w-input" value="2.5" min="0.5" max="20" step="0.5" title="Bridge line width">
     </label>
     <label id="font-label">Font:
-      <select id="font-select">
+      <select id="font-select" disabled>
         <option value="serif">Serif</option>
         <option value="sans-serif" selected>Sans-Serif</option>
         <option value="monospace">Monospace</option>
@@ -51,11 +54,19 @@
         <option value="Garamond">Garamond</option>
       </select>
     </label>
+    <label>Size:
+      <input type="number" id="font-size-input" value="13" min="6" max="72" step="1" title="Font size (px)" disabled>
+    </label>
+    <label title="Bold"><input type="checkbox" id="font-bold-input" disabled> <b>B</b></label>
+    <label title="Italic"><input type="checkbox" id="font-italic-input" disabled> <i>I</i></label>
     <label id="color-label">Box Stroke:
       <input type="color" id="color-stroke" value="#444444">
     </label>
     <label id="fill-label">Box Fill:
       <input type="color" id="color-fill" value="#f5f0e1">
+    </label>
+    <label>Bridge:
+      <input type="color" id="color-bridge" value="#666666" title="Bridge line color">
     </label>
   </div>
 
@@ -64,11 +75,7 @@
     <div id="page-container">
       <div id="two-canvas"></div>
       <div id="overlay">
-      <!-- Header area -->
-      <div id="sheet-header">
-        <input type="text" id="sheet-title" value="Talent Sheet" placeholder="Sheet Title">
-      </div>
-      <!-- Legend area -->
+      <!-- Legend (created here, made draggable by JS) -->
       <div id="sheet-legend">
         <div class="legend-title">Legend</div>
         <div class="legend-item"><span class="legend-swatch" style="background:#c94040"></span> Active Talent</div>
@@ -86,6 +93,9 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
   <script src="two/two.min.js"></script>
   <script src="box.js"></script>
+  <script src="pdf-export.js"></script>
+  <script src="json-utils.js"></script>
+  <script src="events.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

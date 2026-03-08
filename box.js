@@ -11,6 +11,7 @@
  *
  * `env` is the shared dependency object supplied by app.js.
  */
+
 window.createBoxModule = function (env) {
   'use strict';
 
@@ -19,7 +20,7 @@ window.createBoxModule = function (env) {
   /* ------------------------------------------------------------------ */
 
   function chamfer(w) {
-    return Math.round(w * env.CHAMFER_PCT);
+    return w * env.CHAMFER_PCT;
   }
 
   /* ------------------------------------------------------------------ */
@@ -58,8 +59,8 @@ window.createBoxModule = function (env) {
   function createBox(data) {
     const box = Object.assign({
       id:          env.nextBoxId++,
-      x:           env.gridX(0),
-      y:           env.gridY(0),
+      x:           50,
+      y:           150,
       w:           env.boxW,
       h:           env.boxH,
       talentType:  'active',
@@ -69,6 +70,11 @@ window.createBoxModule = function (env) {
       acquired:    false,
       ranked:      false,
       font:        env.globalFont,
+      costFont:    env.globalFont,
+      costFontSize: 13,
+      fontSize:    env.globalFontSize,
+      bold:        false,
+      italic:      false,
       strokeColor: env.globalStroke,
       fillColor:   env.globalFill,
     }, data);
@@ -104,17 +110,23 @@ window.createBoxModule = function (env) {
     el.style.top    = box.y + 'px';
     el.style.width  = box.w + 'px';
     el.style.height = box.h + 'px';
-    el.style.setProperty('--chamfer', chamfer(box.w) + 'px');
+    const clampedChamfer = Math.min(chamfer(box.w), box.w / 4, box.h / 4);
+    el.style.setProperty('--chamfer', clampedChamfer + 'px');
+    //el.style.setProperty('--chamfer-perc', env.CHAMFER_PCT*100 + '%');
     el.dataset.boxId = box.id;
+
+    const costFs = box.costFontSize || 13;
+    const triSize = Math.max(45, costFs * 3.2 + 4);   // grow triangle for large text
+    el.style.setProperty('--tri-size', triSize + 'px');
 
     el.innerHTML = `
       <button class="box-delete" title="Delete">&times;</button>
       <div class="box-header">
         <input type="checkbox" class="box-checkbox" ${box.acquired ? 'checked' : ''} title="Acquired">
-        <textarea class="box-name" rows="1" placeholder="Name" style="font-family:${box.font}">${env.escHtml(box.name)}</textarea>
+        <div class="box-name" contenteditable="true" role="textbox" data-placeholder="Name" style="font-family:${box.font}; font-size:${box.fontSize}px; font-weight:${box.bold ? 'bold' : 'normal'}; font-style:${box.italic ? 'italic' : 'normal'}">${box.name}</div>
       </div>
       <div class="box-body">
-        <textarea class="box-description" placeholder="Description…" style="font-family:${box.font}">${env.escHtml(box.description)}</textarea>
+        <div class="box-description" contenteditable="true" role="textbox" data-placeholder="Description\u2026" style="font-family:${box.font}; font-size:${box.fontSize}px; font-weight:${box.bold ? 'bold' : 'normal'}; font-style:${box.italic ? 'italic' : 'normal'}">${box.description}</div>
         <div class="box-ranked-row">
           <div class="ranked-indicator ${box.ranked ? 'ranked' : ''}" title="Toggle ranked talent">
             <span class="ranked-cell"></span><span class="ranked-cell"></span>
@@ -122,7 +134,8 @@ window.createBoxModule = function (env) {
           </div>
         </div>
       </div>
-      <span class="box-cost" style="font-family:${box.font}">${env.escHtml(box.cost)}</span>`;
+      <span class="box-cost" style="font-family:${box.costFont || box.font}; font-size:${box.costFontSize || 13}px">${env.escHtml(box.cost)}</span>
+      <div class="box-resize-handle" title="Resize"></div>`;
 
     env.overlay.appendChild(el);
     bindBoxEvents(el, box);
@@ -135,6 +148,25 @@ window.createBoxModule = function (env) {
   /* ------------------------------------------------------------------ */
 
   function bindBoxEvents(el, box) {
+    // --- Focus tracking (used by font/size toolbar to target a single box) ---
+    el.addEventListener('focusin', (e) => {
+      env.focusedBoxId = box.id;
+      env.focusedTextFieldId = null;
+      // Detect if the cost span specifically received focus
+      const isCostFocus = e.target.closest('.box-cost') != null;
+      env.focusedCostBoxId = isCostFocus ? box.id : null;
+      env.onBoxFocus(box, isCostFocus);
+    });
+    el.addEventListener('focusout', (e) => {
+      // Only clear if focus leaves this box entirely
+      if (!el.contains(e.relatedTarget)) {
+        if (env.focusedBoxId === box.id) {
+          env.focusedBoxId = null;
+          env.onBoxBlur();
+        }
+      }
+    });
+
     // --- Delete ---
     el.querySelector('.box-delete').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -149,14 +181,8 @@ window.createBoxModule = function (env) {
 
     // --- Name (auto-grow header on wrap) ---
     const nameInput = el.querySelector('.box-name');
-    function autoSizeName() {
-      nameInput.style.height = '0';
-      nameInput.style.height = nameInput.scrollHeight + 'px';
-    }
-    autoSizeName();  // initial sizing
     nameInput.addEventListener('input', () => {
-      box.name = nameInput.value;
-      autoSizeName();
+      box.name = nameInput.innerHTML;
       growBoxToFit(box, el);
       env.autoSave();
     });
@@ -164,7 +190,7 @@ window.createBoxModule = function (env) {
     // --- Description (auto-grow) ---
     const descArea = el.querySelector('.box-description');
     descArea.addEventListener('input', () => {
-      box.description = descArea.value;
+      box.description = descArea.innerHTML;
       growBoxToFit(box, el);
       env.autoSave();
     });
@@ -188,8 +214,8 @@ window.createBoxModule = function (env) {
     let dragging = false, startMX, startMY, startBX, startBY;
 
     el.addEventListener('mousedown', (e) => {
-      // Don't drag when clicking interactive elements or side connectors
-      if (e.target.closest('input, textarea, button, .ranked-indicator, .box-cost, .side-connector')) return;
+      // Don't drag when clicking interactive elements, side connectors, or resize handle
+      if (e.target.closest('input, [contenteditable], button, .ranked-indicator, .box-cost, .side-connector, .box-resize-handle')) return;
       dragging = true;
       startMX = e.clientX;
       startMY = e.clientY;
@@ -203,25 +229,82 @@ window.createBoxModule = function (env) {
       if (!dragging) return;
       const dx = (e.clientX - startMX) / env.currentScale;
       const dy = (e.clientY - startMY) / env.currentScale;
-      box.x = Math.max(0, startBX + dx);
-      box.y = Math.max(0, startBY + dy);
+      let newX = Math.max(0, startBX + dx);
+      let newY = Math.max(0, startBY + dy);
+
+      // Snap-to-center alignment
+      const dragCx = newX + box.w / 2;
+      const dragCy = newY + box.h / 2;
+      const SNAP = env.SNAP_THRESHOLD;
+      let snapV = null, snapH = null;
+
+      for (const other of env.boxes) {
+        if (other.id === box.id) continue;
+        const otherCx = other.x + other.w / 2;
+        const otherCy = other.y + other.h / 2;
+        if (snapV == null && Math.abs(dragCx - otherCx) < SNAP) {
+          newX = otherCx - box.w / 2;
+          snapV = otherCx;
+        }
+        if (snapH == null && Math.abs(dragCy - otherCy) < SNAP) {
+          newY = otherCy - box.h / 2;
+          snapH = otherCy;
+        }
+      }
+
+      box.x = newX;
+      box.y = newY;
       el.style.left = box.x + 'px';
       el.style.top  = box.y + 'px';
       updateBoxShape(box);
       env.updateBridgesFor(box.id);
       env.expandPage();
+      env.showSnapGuides(snapV, snapH);
     });
 
     document.addEventListener('mouseup', () => {
       if (!dragging) return;
       dragging = false;
       el.classList.remove('dragging');
-      // Snap to grid
-      box.x = env.snapX(box.x);
-      box.y = env.snapY(box.y);
-      el.style.left = box.x + 'px';
-      el.style.top  = box.y + 'px';
+      env.hideSnapGuides();
+      env.reconcileAllBridges();
+      env.autoSave();
+    });
+
+    // --- Resize (lower-right corner) ---
+    const resizeHandle = el.querySelector('.box-resize-handle');
+    let resizing = false, resizeStartMX, resizeStartMY, resizeStartW, resizeStartH;
+
+    resizeHandle.addEventListener('mousedown', (e) => {
+      resizing = true;
+      resizeStartMX = e.clientX;
+      resizeStartMY = e.clientY;
+      resizeStartW = box.w;
+      resizeStartH = box.h;
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!resizing) return;
+      const dx = (e.clientX - resizeStartMX) / env.currentScale;
+      const dy = (e.clientY - resizeStartMY) / env.currentScale;
+      box.w = Math.max(80, resizeStartW + dx);
+      box.h = Math.max(60, resizeStartH + dy);
+      el.style.width  = box.w + 'px';
+      el.style.height = box.h + 'px';
+      const clampedChamfer = Math.min(chamfer(box.w), box.w / 4, box.h / 4);
+      el.style.setProperty('--chamfer', clampedChamfer + 'px');
+      const costFs = box.costFontSize || 13;
+      const triSize = Math.max(45, costFs * 3.2 + 4);
+      el.style.setProperty('--tri-size', triSize + 'px');
       updateBoxShape(box);
+      env.updateBridgesFor(box.id);
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!resizing) return;
+      resizing = false;
       env.reconcileAllBridges();
       env.autoSave();
     });
@@ -238,6 +321,9 @@ window.createBoxModule = function (env) {
     const fill   = env.darkMode ? env.darken(box.fillColor) : box.fillColor;
     const stroke = env.darkMode ? env.lighten(box.strokeColor) : box.strokeColor;
     const shape  = makeChamferedRect(box.x, box.y, box.w, box.h, chamfer(box.w), stroke, fill);
+    const el = document.getElementById('box-' + box.id);
+    const clampedChamfer = Math.min(chamfer(box.w), box.w / 4, box.h / 4);
+    el.style.setProperty('--chamfer', clampedChamfer + 'px');
     env.twoBoxShapes[box.id] = shape;
     env.two.update();
   }
@@ -249,26 +335,33 @@ window.createBoxModule = function (env) {
   function growBoxToFit(box, el) {
     const descArea = el.querySelector('.box-description');
 
-    // Temporarily collapse to minimum so scrollHeight reflects true content
-    el.style.height = env.boxH + 'px';
-    descArea.style.height = '0';
-    descArea.style.height = descArea.scrollHeight + 'px';
+    // Pull textarea out of flex flow so we can measure true content height.
+    // position:absolute removes it from flex; width is locked so wrapping
+    // stays the same; height & min-height are zeroed so scrollHeight
+    // reports only the content.
+    const measuredW = descArea.offsetWidth;
+    descArea.style.position  = 'absolute';
+    descArea.style.width     = measuredW + 'px';
+    descArea.style.height    = '0px';
+    descArea.style.minHeight = '0px';
+    void descArea.offsetHeight;                       // force reflow
     const needed = descArea.scrollHeight;
+    // Restore — clear all inline overrides so CSS rules apply again
+    descArea.style.position  = '';
+    descArea.style.width     = '';
+    descArea.style.height    = '';
+    descArea.style.minHeight = '';
 
     const headerH  = el.querySelector('.box-header').offsetHeight;
     const rankedH  = el.querySelector('.box-ranked-row') ? el.querySelector('.box-ranked-row').offsetHeight : 0;
     const pad      = 30; // total vertical padding
-    const newH     = Math.max(env.boxH, headerH + needed + rankedH + pad);
+    const newH     = Math.max(60, headerH + needed + rankedH + pad);
 
-    if (newH !== box.h) {
-      box.h = newH;
-      el.style.height = newH + 'px';
-      updateBoxShape(box);
-      env.updateBridgesFor(box.id);
-      env.expandPage();
-    } else {
-      el.style.height = box.h + 'px';
-    }
+    box.h = newH;
+    el.style.height = newH + 'px';
+    updateBoxShape(box);
+    env.updateBridgesFor(box.id);
+    env.expandPage();
   }
 
   /* ------------------------------------------------------------------ */
@@ -310,17 +403,24 @@ window.createBoxModule = function (env) {
   /* ------------------------------------------------------------------ */
 
   function findFreePosition() {
+    const defW = env.boxW;
+    const defH = env.boxH;
+    const startX = 60;
+    const startY = 150;
+    const cols = Math.max(1, Math.floor((2200 - startX) / (defW + 20)));
+
     for (let row = 0; row < 100; row++) {
-      for (let col = 0; col < env.gridCols; col++) {
-        const x = env.gridX(col);
-        const y = env.gridY(row);
+      for (let col = 0; col < cols; col++) {
+        const x = startX + col * (defW + 20);
+        const y = startY + row * (defH + 20);
         const occupied = env.boxes.some(b =>
-          Math.abs(b.x - x) < env.boxW / 2 && Math.abs(b.y - y) < env.boxH / 2
+          x < b.x + b.w + 10 && x + defW + 10 > b.x &&
+          y < b.y + b.h + 10 && y + defH + 10 > b.y
         );
         if (!occupied) return { x, y };
       }
     }
-    return { x: env.gridX(0), y: env.gridY(0) };
+    return { x: startX, y: startY };
   }
 
   /* ------------------------------------------------------------------ */

@@ -15,6 +15,8 @@
   --bridge-color: #666;
   --checkbox-accent: #555;
   --ranked-border: #888;
+  --label-padding-width: 5px;
+  --label-padding-height: 8px; 
 }
 
 [data-theme="dark"] {
@@ -100,13 +102,11 @@ body {
   padding: 3px;
 }
 
-#grid-cols-input {
-  width: 52px;
-  text-align: center;
+#toolbar select:disabled, #toolbar input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
-#grid-rows-input,
-#vgap-input,
 #box-w-input,
 #box-h-input {
   width: 56px;
@@ -114,6 +114,11 @@ body {
 }
 
 #bridge-w-input {
+  width: 52px;
+  text-align: center;
+}
+
+#font-size-input {
   width: 52px;
   text-align: center;
 }
@@ -160,6 +165,41 @@ body.pdf-exporting .grid-line {
   display: none !important;
 }
 
+/* Header background & cost triangle are drawn in SVG during export */
+body.pdf-exporting .box-header {
+  background: transparent !important;
+  clip-path: none !important;
+}
+
+body.pdf-exporting .talent-box::after {
+  display: none !important;
+}
+
+/* Hide un-toggled ranked indicators during PDF export */
+body.pdf-exporting .ranked-indicator:not(.ranked) {
+  display: none !important;
+}
+
+/* Let text fields expand fully during PDF export */
+body.pdf-exporting .tf-input {
+  overflow: visible !important;
+}
+
+/* html2canvas doesn't handle CSS transforms or inline-block baseline
+   alignment reliably; flatten everything for PDF export. */
+body.pdf-exporting .die-sym {
+  display: inline !important;
+  vertical-align: baseline !important;
+  transform: none !important;
+}
+body.pdf-exporting .die-diamond,
+body.pdf-exporting .die-hex {
+  vertical-align: -0.15em !important;
+}
+body.pdf-exporting .die-diamond {
+  font-size: 1em !important;
+}
+
 /* ===== HTML overlay (A1-space dimensions, CSS-transform-scaled by JS) ===== */
 #overlay {
   position: absolute;
@@ -169,29 +209,92 @@ body.pdf-exporting .grid-line {
   /* width, height, transform set by fitToWindow() */
 }
 
-/* ===== Sheet header (top-left) ===== */
-#sheet-header {
+/* ===== Draggable text fields ===== */
+.text-field {
   position: absolute;
-  top: 42px;
-  left: 50px;
   z-index: 10;
+  user-select: none;
+  display: flex;
+  align-items: flex-start;
 }
 
-#sheet-title {
-  font-size: 32px;
-  font-weight: bold;
+.text-field.dragging {
+  opacity: 0.85;
+}
+
+.text-field .tf-drag {
+  flex: 0 0 auto;
+  width: 16px;
+  cursor: grab;
+  color: var(--text-color, #333);
+  opacity: 0.35;
+  font-size: 16px;
+  line-height: 1;
+  text-align: center;
+  padding-top: 4px;
+  user-select: none;
+}
+
+.text-field .tf-drag:hover {
+  opacity: 0.7;
+}
+
+.text-field.dragging .tf-drag {
+  cursor: grabbing;
+  opacity: 0.8;
+}
+
+.text-field .tf-input {
+  display: block;
+  flex: 1 1 auto;
   background: transparent;
   border: none;
   border-bottom: 2px dashed transparent;
   color: var(--text-color);
   outline: none;
   padding: 4px 8px;
-  width: 600px;
   font-family: inherit;
+  overflow: hidden;
+  line-height: 1.3;
+  white-space: pre;
 }
 
-#sheet-title:focus {
+.text-field .tf-input:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-color);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.text-field .tf-input:focus {
   border-bottom-color: var(--box-stroke);
+}
+
+.text-field .tf-delete {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #c44;
+  color: #fff;
+  border: none;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+  cursor: pointer;
+  display: none;
+  z-index: 15;
+}
+
+.text-field:hover .tf-delete {
+  display: block;
+}
+
+/* Text-place mode cursor */
+#overlay.text-place-mode {
+  cursor: crosshair;
 }
 
 /* ===== Sheet legend (top-right) ===== */
@@ -271,11 +374,16 @@ body.pdf-exporting .grid-line {
 .talent-box .box-header {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
-  padding: 5px 8px;
+  margin: 1px;
+  padding: var(--label-padding-height) var(--label-padding-width);
   flex-shrink: 0;
-  /* Clip top-right corner to match chamfered box outline */
-  clip-path: polygon(0 0, calc(100% - var(--chamfer, 14px)) 0, 100% var(--chamfer, 14px), 100% 100%, 0 100%);
+  clip-path: polygon(
+    0% 0%,
+    calc(100% - var(--chamfer, 14px) + 2px) 0%,
+    100% calc(var(--chamfer, 14px) - 2px),
+    100% 100%,
+    0% 100%
+  );
 }
 
 /* Type colours */
@@ -283,10 +391,11 @@ body.pdf-exporting .grid-line {
 .talent-passive .box-header { background: #3c78b5; }
 .talent-skill   .box-header { background: #7b4fbf; }
 
-/* Skill decoration — double border */
+/* Skill decoration — double border
 .talent-skill .box-header {
   box-shadow: inset 0 0 0 2px rgba(255,255,255,0.35);
 }
+  */
 
 .talent-box .box-checkbox {
   width: 16px;
@@ -310,14 +419,17 @@ body.pdf-exporting .grid-line {
   padding: 1px calc(var(--chamfer, 14px)) 1px 4px;
   font-family: inherit;
   min-width: 0;
-  resize: none;
   overflow: hidden;
   line-height: 1.3;
   word-wrap: break-word;
   white-space: pre-wrap;
 }
 
-.talent-box .box-name::placeholder { color: rgba(255,255,255,0.6); }
+.talent-box .box-name:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(255,255,255,0.6);
+  pointer-events: none;
+}
 .talent-box .box-name:focus { border-bottom-color: rgba(255,255,255,0.6); }
 
 /* --- Body (description + ranked row) --- */
@@ -337,32 +449,40 @@ body.pdf-exporting .grid-line {
   border: 1px dashed transparent;
   color: var(--box-text);
   outline: none;
-  resize: none;
   padding: 4px;
   font-family: inherit;
   line-height: 1.4;
   min-height: 30px;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.talent-box .box-description:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(255,255,255,0.4);
+  pointer-events: none;
 }
 
 .talent-box .box-description:focus {
   border-color: var(--box-stroke);
 }
 
-/* Ranked row */
+/* Ranked row — positioned in the bottom-left chamfer cutout area */
 .talent-box .box-ranked-row {
-  display: flex;
-  align-items: center;
-  margin-top: 4px;
+  position: absolute;
+  bottom: 0px;
+  left: 0px;
 }
 
-/* Ranked 2×2 grid indicator */
+/* Ranked 2×2 grid indicator — sized smaller than the chamfer width */
 .talent-box .ranked-indicator {
-  width: 22px;
-  height: 22px;
+  width: calc(var(--chamfer, 14px)/2 - 2px);
+  height: calc(var(--chamfer, 14px)/2 - 2px);
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
-  gap: 1px;
+  /* ── cell separation ── adjust this value to change spacing between cells */
+  gap: 3px;
   border: 1.5px solid var(--ranked-border);
   border-radius: 2px;
   cursor: pointer;
@@ -376,6 +496,7 @@ body.pdf-exporting .grid-line {
 
 .talent-box .ranked-indicator .ranked-cell {
   background: var(--ranked-border);
+  border-radius: 1px;
 }
 
 /* --- Cost corner triangle (CSS, bottom-right) --- */
@@ -384,8 +505,8 @@ body.pdf-exporting .grid-line {
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 36px;
-  height: 36px;
+  width: var(--tri-size, 45px);
+  height: var(--tri-size, 45px);
   background: #000;
   clip-path: polygon(100% 0, 100% 100%, 0 100%);
   z-index: 2;
@@ -396,21 +517,26 @@ body.pdf-exporting .grid-line {
   background: #fff;
 }
 
-/* --- Cost text aligned with triangle hypotenuse --- */
+/* --- Cost text centred inside the triangle area --- */
 .talent-box .box-cost {
   position: absolute;
-  bottom: 4px;
-  right: 2px;
+  bottom: 0;
+  right: 0;
+  width: var(--tri-size, 45px);
+  height: var(--tri-size, 45px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   font-size: 11px;
   font-weight: bold;
   color: #fff;
   outline: none;
   cursor: text;
   text-align: center;
-  min-width: 10px;
   z-index: 3;
   line-height: 1;
-  transform: rotate(-45deg);
+  transform: translate(calc(var(--tri-size, 45px) / 6), calc(var(--tri-size, 45px) / 6)) rotate(-45deg);
   transform-origin: center center;
 }
 
@@ -499,3 +625,151 @@ body.pdf-exporting .grid-line {
 .dropdown-menu button[data-type="active"]  { color: #c94040; }
 .dropdown-menu button[data-type="passive"] { color: #3c78b5; }
 .dropdown-menu button[data-type="skill"]   { color: #7b4fbf; }
+
+/* --- Insert-symbol dropdown --- */
+#insert-symbol-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+#btn-insert-symbol:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.die-swatch {
+  font-size: 14px;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+.die-ability     { color: #4caf50; }   /* green */
+.die-difficulty  { color: #7b1fa2; }   /* purple */
+.die-proficiency { color: #fdd835; }   /* yellow */
+.die-challenge   { color: #e53935; }   /* red */
+.die-boost       { color: #00bcd4; }   /* cyan */
+.die-setback     { color: #222;    }   /* black */
+
+[data-theme="dark"] .die-setback { color: #ccc; }
+
+/* --- Inline die symbols (inserted into contentEditable fields) --- */
+/* All symbols inherit font-size from their parent (= the text field's size)
+   so they scale automatically when the user changes font size.
+   Transforms are anchored near the baseline (80% down) so visual
+   baseline stays aligned with surrounding text. */
+.die-sym {
+  display: inline-block;
+  line-height: 1;
+  vertical-align: baseline;
+  font-style: normal;
+  font-weight: normal;
+  gap: 1px;
+}
+.die-diamond {
+  /* Narrow horizontally + stretch vertically → elongated upward look.
+     Net visual height ≈ 1em  (0.85em font × 1.18 scaleY). */
+  font-size: 0.85em !important;
+  transform: scaleX(0.92) scaleY(1.18);
+  transform-origin: center 80%;
+}
+.die-hex {
+  font-size: 1em !important;
+}
+.die-square {
+  /* ■ glyph is visually small; bump font-size to match text height. */
+  font-size: 1.4em !important;
+}
+
+/* Legend font inherits globalFont via JS */
+#sheet-legend {
+  cursor: grab;
+}
+#sheet-legend.dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+}
+
+/* ===== Box resize handle (lower-right corner) ===== */
+.box-resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  z-index: 6;
+  /* Small triangle grip indicator */
+  background: linear-gradient(
+    135deg,
+    transparent 30%,
+    rgba(0,0,0,0.15) 30%,
+    rgba(0,0,0,0.15) 45%,
+    transparent 45%,
+    transparent 55%,
+    rgba(0,0,0,0.15) 55%,
+    rgba(0,0,0,0.15) 70%,
+    transparent 70%
+  );
+}
+
+.box-resize-handle:hover {
+  background: linear-gradient(
+    135deg,
+    transparent 30%,
+    rgba(0,0,0,0.35) 30%,
+    rgba(0,0,0,0.35) 45%,
+    transparent 45%,
+    transparent 55%,
+    rgba(0,0,0,0.35) 55%,
+    rgba(0,0,0,0.35) 70%,
+    transparent 70%
+  );
+}
+
+[data-theme="dark"] .box-resize-handle {
+  background: linear-gradient(
+    135deg,
+    transparent 30%,
+    rgba(255,255,255,0.15) 30%,
+    rgba(255,255,255,0.15) 45%,
+    transparent 45%,
+    transparent 55%,
+    rgba(255,255,255,0.15) 55%,
+    rgba(255,255,255,0.15) 70%,
+    transparent 70%
+  );
+}
+
+[data-theme="dark"] .box-resize-handle:hover {
+  background: linear-gradient(
+    135deg,
+    transparent 30%,
+    rgba(255,255,255,0.35) 30%,
+    rgba(255,255,255,0.35) 45%,
+    transparent 45%,
+    transparent 55%,
+    rgba(255,255,255,0.35) 55%,
+    rgba(255,255,255,0.35) 70%,
+    transparent 70%
+  );
+}
+
+/* ===== Snap alignment guide lines ===== */
+.snap-guide-v {
+  position: absolute;
+  width: 1px;
+  top: 0;
+  bottom: 0;
+  background: rgba(74, 144, 217, 0.6);
+  pointer-events: none;
+  z-index: 100;
+}
+
+.snap-guide-h {
+  position: absolute;
+  height: 1px;
+  left: 0;
+  right: 0;
+  background: rgba(74, 144, 217, 0.6);
+  pointer-events: none;
+  z-index: 100;
+}

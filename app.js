@@ -2,10 +2,13 @@
  * Talent Sheet Generator — app.js
  *
  * Main application controller: page layout, grid, bridging lines,
- * side-connector UI, JSON persistence, PDF export, and toolbar wiring.
+ * side-connector UI, JSON persistence, and module wiring.
  *
  * Box creation, rendering, events, and removal live in box.js
  * (loaded via window.createBoxModule).
+ * PDF export lives in pdf-export.js (loaded via window.createPdfExportModule).
+ * Event listeners and toolbar wiring live in events.js
+ * (loaded via window.createEventsModule).
  */
 
 (function () {
@@ -29,18 +32,10 @@
   const HEADER_HEIGHT = 90;                              // px reserved for header/legend row
   const GRID_TOP      = PAGE_MARGIN + HEADER_HEIGHT;     // y where box grid starts
 
-  let gridCols        = 10;
-  let gridRows        = 20;                              // max visible rows
-  let GRID_GAP        = 0;                               // computed horizontal gap
-  let GRID_VGAP       = 16;                              // vertical gap between rows
   let bridgeWidth     = 2.5;                             // bridge line width
 
-  /** Recalculate horizontal spacing from current gridCols (box width stays fixed) */
-  function recalcGrid() {
-    const usable = A1_WIDTH - PAGE_MARGIN * 2;           // area inside margins
-    GRID_GAP  = Math.max(6, Math.floor((usable - gridCols * boxW) / (gridCols + 1)));
-  }
-  recalcGrid();   // initial calculation
+  // Snap-to-center alignment threshold (px in A1 space)
+  const SNAP_THRESHOLD = 15;
 
   /* ------------------------------------------------------------------ */
   /*  State                                                              */
@@ -48,14 +43,26 @@
 
   let boxes     = [];   // { id, x, y, w, h, name, description, cost, acquired, ranked, font, strokeColor, fillColor }
   let bridges   = [];   // { id, fromId, toId, fromSide, toSide }
+  let textFields = [];  // { id, x, y, text, font, fontSize, fontWeight, width }
   let nextBoxId = 1;
   let nextBridgeId = 1;
+  let nextTextFieldId = 1;
 
-  let bridgePending  = null;  // { boxId, side } — first half of a bridge connection
-  let globalFont     = 'sans-serif';
-  let globalStroke   = '#444444';
-  let globalFill     = '#f5f0e1';
-  let darkMode       = false;
+  let bridgePending   = null;  // { boxId, side } — first half of a bridge connection
+  let textPlaceMode   = false; // when true, next click on page places a text field
+  let globalFont      = 'sans-serif';
+  let globalFontSize  = 13;
+  let globalBold      = false;
+  let globalItalic    = false;
+  let globalStroke    = '#444444';
+  let globalFill      = '#f5f0e1';
+  let bridgeColor     = '#666666';
+  let darkMode        = false;
+  let focusedBoxId    = null;   // id of the box that currently has focus
+  let focusedCostBoxId = null;  // id of box whose cost field has focus (or null)
+  let focusedTextFieldId = null; // id of the text field that currently has focus
+  let lastFocusedInput   = null; // last textarea/contenteditable that had focus
+  let legendPos       = { x: -1, y: 42 }; // -1 means "right-anchored at 50px"
 
   /* ------------------------------------------------------------------ */
   /*  DOM refs                                                           */
@@ -71,6 +78,7 @@
   const btnAddBox     = document.getElementById('btn-add-box');
   const addTalentMenu = document.getElementById('add-talent-menu');
   const btnTheme      = document.getElementById('btn-toggle-theme');
+  const btnAddText    = document.getElementById('btn-add-text');
   const btnSave       = document.getElementById('btn-save');
   const btnLoad       = document.getElementById('btn-load');
   const btnExportPdf  = document.getElementById('btn-export-pdf');
@@ -78,13 +86,19 @@
   const fontSelect    = document.getElementById('font-select');
   const colorStroke   = document.getElementById('color-stroke');
   const colorFill     = document.getElementById('color-fill');
-  const gridColsInput = document.getElementById('grid-cols-input');
-  const gridRowsInput = document.getElementById('grid-rows-input');
-  const vgapInput     = document.getElementById('vgap-input');
+  const colorBridge   = document.getElementById('color-bridge');
   const boxWInput     = document.getElementById('box-w-input');
   const boxHInput     = document.getElementById('box-h-input');
   const bridgeWInput  = document.getElementById('bridge-w-input');
-  const sheetTitle    = document.getElementById('sheet-title');
+  const fontSizeInput = document.getElementById('font-size-input');
+  const fontBoldInput = document.getElementById('font-bold-input');
+  const fontItalicInput = document.getElementById('font-italic-input');
+  const btnInsertSymbol  = document.getElementById('btn-insert-symbol');
+  const insertSymbolMenu = document.getElementById('insert-symbol-menu');
+  const sheetLegend   = document.getElementById('sheet-legend');
+
+  /* Title text-field id — the first text field auto-created acts as the title */
+  let titleTextFieldId = null;
 
   /* ------------------------------------------------------------------ */
   /*  Two.js setup                                                       */
@@ -100,7 +114,6 @@
   const twoBoxShapes    = {};
   const twoBridgeLines  = {};
   let marginShapes      = [];    // Two.js shapes for page-margin dashes
-  let gridShapes        = [];    // Two.js shapes for visible grid
 
   /* ------------------------------------------------------------------ */
   /*  Fit page to browser window width                                   */
@@ -145,50 +158,9 @@
     pageWrapper.style.overflowX = visW > WINDOW_W ? 'auto' : 'hidden';
   }
 
-  window.addEventListener('resize', fitToWindow);
-
   /* ------------------------------------------------------------------ */
-  /*  Draw visible grid (editor only, hidden in PDF)                     */
+  /*  Draw dashed margin lines on the page                               */
   /* ------------------------------------------------------------------ */
-
-  function drawGrid() {
-    // Remove old grid shapes
-    gridShapes.forEach(s => two.remove(s));
-    gridShapes = [];
-
-    const stroke = darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.07)';
-    const fill   = darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.015)';
-    const bottomLimit = pageHeight - PAGE_MARGIN;   // nothing drawn below this
-
-    const slotPad = 4;  // px padding around the default box size
-    const slotW   = boxW + slotPad * 2;
-    const slotH   = boxH + slotPad * 2;
-
-    // Use configured gridRows but clip to what fits within the bottom margin
-    const fitRows = Math.floor((bottomLimit - GRID_TOP - GRID_VGAP + GRID_VGAP) / (boxH + GRID_VGAP));
-    const maxRows = Math.min(gridRows, fitRows);
-
-    for (let row = 0; row < maxRows; row++) {
-      for (let col = 0; col < gridCols; col++) {
-        const x = gridX(col) - slotPad;
-        const y = gridY(row) - slotPad;
-        // Skip if this slot would extend past the bottom margin
-        if (y + slotH > bottomLimit) continue;
-        // Two.makeRectangle uses center coords
-        const cx = x + slotW / 2;
-        const cy = y + slotH / 2;
-        const rect = two.makeRectangle(cx, cy, slotW, slotH);
-        rect.stroke    = stroke;
-        rect.fill      = fill;
-        rect.linewidth = 1;
-        rect.dashes    = [4, 3];
-        rect.className = 'grid-line';
-        gridShapes.push(rect);
-      }
-    }
-
-    two.update();
-  }
 
   /** Draw dashed margin lines on the page */
   function drawPageMargins() {
@@ -223,30 +195,45 @@
     sep.dashes    = [6, 4];
     marginShapes.push(sep);
 
-    
-    drawGrid();
     two.update();
   }
 
   /* ------------------------------------------------------------------ */
-  /*  Snap helpers                                                       */
+  /*  Snap-to-center alignment guides                                    */
   /* ------------------------------------------------------------------ */
 
-  function gridX(col) {
-    return PAGE_MARGIN + GRID_GAP + col * (boxW + GRID_GAP);
-  }
-  function gridY(row) {
-    return GRID_TOP + GRID_VGAP + row * (boxH + GRID_VGAP);
+  let snapGuideH = null;
+  let snapGuideV = null;
+
+  function showSnapGuides(vx, hy) {
+    if (vx != null) {
+      if (!snapGuideV) {
+        snapGuideV = document.createElement('div');
+        snapGuideV.className = 'snap-guide-v';
+        overlay.appendChild(snapGuideV);
+      }
+      snapGuideV.style.left = vx + 'px';
+      snapGuideV.style.display = '';
+    } else if (snapGuideV) {
+      snapGuideV.style.display = 'none';
+    }
+
+    if (hy != null) {
+      if (!snapGuideH) {
+        snapGuideH = document.createElement('div');
+        snapGuideH.className = 'snap-guide-h';
+        overlay.appendChild(snapGuideH);
+      }
+      snapGuideH.style.top = hy + 'px';
+      snapGuideH.style.display = '';
+    } else if (snapGuideH) {
+      snapGuideH.style.display = 'none';
+    }
   }
 
-  function snapX(px) {
-    const col = Math.round((px - PAGE_MARGIN - GRID_GAP) / (boxW + GRID_GAP));
-    return gridX(Math.max(0, Math.min(col, gridCols - 1)));
-  }
-
-  function snapY(py) {
-    const row = Math.round((py - GRID_TOP - GRID_VGAP) / (boxH + GRID_VGAP));
-    return gridY(Math.max(0, row));
+  function hideSnapGuides() {
+    if (snapGuideV) snapGuideV.style.display = 'none';
+    if (snapGuideH) snapGuideH.style.display = 'none';
   }
 
   /* ------------------------------------------------------------------ */
@@ -268,22 +255,52 @@
     get boxW()           { return boxW; },
     get boxH()           { return boxH; },
     get globalFont()     { return globalFont; },
+    get globalFontSize() { return globalFontSize; },
     get globalStroke()   { return globalStroke; },
     get globalFill()     { return globalFill; },
     get currentScale()   { return currentScale; },
-    get gridCols()       { return gridCols; },
+    get focusedBoxId()   { return focusedBoxId; },
+    set focusedBoxId(v)  { focusedBoxId = v; },
+    get focusedCostBoxId()  { return focusedCostBoxId; },
+    set focusedCostBoxId(v) { focusedCostBoxId = v; },
+    set focusedTextFieldId(v) { focusedTextFieldId = v; },
+    onBoxFocus(box, isCostFocus) {
+      fontSelect.disabled     = false;
+      fontSizeInput.disabled  = false;
+      fontBoldInput.disabled  = false;
+      fontItalicInput.disabled = false;
+      if (isCostFocus) {
+        fontSelect.value      = box.costFont || box.font || globalFont;
+        fontSizeInput.value   = box.costFontSize || 13;
+      } else {
+        fontSelect.value      = box.font  || globalFont;
+        fontSizeInput.value   = box.fontSize || globalFontSize;
+      }
+      fontBoldInput.checked = !!(box.bold);
+      fontItalicInput.checked = !!(box.italic);
+    },
+    onBoxBlur() {
+      focusedCostBoxId = null;
+      fontSelect.disabled     = true;
+      fontSizeInput.disabled  = true;
+      fontBoldInput.disabled  = true;
+      fontItalicInput.disabled = true;
+      fontSelect.value      = globalFont;
+      fontSizeInput.value   = globalFontSize;
+      fontBoldInput.checked = globalBold;
+      fontItalicInput.checked = globalItalic;
+    },
     CHAMFER_PCT:  0.20,
     darken,
     lighten,
     escHtml,
-    snapX,
-    snapY,
-    gridX,
-    gridY,
+    SNAP_THRESHOLD,
+    showSnapGuides,
+    hideSnapGuides,
     reconcileAllBridges,
     updateBridgesFor,
     expandPage,
-    autoSave,
+    autoSave() { autoSave(); },
     clearSideConnector,
   };
 
@@ -416,81 +433,7 @@
     return true;
   }
 
-  /* Overlay-level mousemove for extended side-connector detection */
-  overlay.addEventListener('mousemove', (e) => {
-    const rect = pageContainer.getBoundingClientRect();
-    const px = (e.clientX - rect.left) / currentScale;
-    const py = (e.clientY - rect.top)  / currentScale;
 
-    let foundBox  = null;
-    let foundSide = null;
-
-    for (const box of boxes) {
-      const side = detectSideExtended(box, px, py);
-      if (side) {
-        foundBox  = box;
-        foundSide = side;
-        break;
-      }
-    }
-
-    if (foundBox && foundSide) {
-      if (hoveredBoxId !== foundBox.id || hoveredSide !== foundSide) {
-        clearAllSideConnectors();
-        hoveredBoxId = foundBox.id;
-        hoveredSide  = foundSide;
-        drawSideConnector(foundBox, foundSide);
-      }
-    } else {
-      clearAllSideConnectors();
-    }
-  });
-
-  overlay.addEventListener('mouseleave', () => {
-    clearAllSideConnectors();
-  });
-
-  /* Click on the overlay to start/complete a bridge via hovered side */
-  overlay.addEventListener('click', (e) => {
-    if (e.target.closest('input, textarea, button, .ranked-indicator, .box-cost')) return;
-    if (!hoveredBoxId || !hoveredSide) return;
-
-    const box = boxes.find(b => b.id === hoveredBoxId);
-    if (!box) return;
-
-    if (!bridgePending) {
-      // Start bridge
-      bridgePending = { boxId: box.id, side: hoveredSide };
-      const el = document.getElementById('box-' + box.id);
-      if (el) el.style.outline = '3px solid #4a90d9';
-    } else {
-      // Finish bridge
-      if (bridgePending.boxId !== box.id) {
-        const fromBox = boxes.find(b => b.id === bridgePending.boxId);
-        if (fromBox && sidesCanConnect(fromBox, bridgePending.side, box, hoveredSide)) {
-          const exists = bridges.some(b =>
-            (b.fromId === bridgePending.boxId && b.toId === box.id &&
-             b.fromSide === bridgePending.side && b.toSide === hoveredSide) ||
-            (b.fromId === box.id && b.toId === bridgePending.boxId &&
-             b.fromSide === hoveredSide && b.toSide === bridgePending.side)
-          );
-          if (!exists) {
-            createBridge({
-              fromId: bridgePending.boxId,
-              toId: box.id,
-              fromSide: bridgePending.side,
-              toSide: hoveredSide,
-            });
-          }
-        }
-      }
-      // Clear pending
-      const prevEl = document.getElementById('box-' + bridgePending.boxId);
-      if (prevEl) prevEl.style.outline = '';
-      bridgePending = null;
-      autoSave();
-    }
-  });
 
   /* ------------------------------------------------------------------ */
   /*  Bridge (connecting) lines                                          */
@@ -524,9 +467,7 @@
     const [x1, y1] = sideAnchor(fromBox, bridge.fromSide || 'right');
     const [x2, y2] = sideAnchor(toBox,   bridge.toSide   || 'left');
 
-    const color = darkMode
-      ? getComputedStyle(document.documentElement).getPropertyValue('--bridge-color').trim()
-      : '#666';
+    const color = darkMode ? lighten(bridgeColor) : bridgeColor;
 
     const line = two.makeLine(x1, y1, x2, y2);
     line.stroke   = color;
@@ -544,45 +485,7 @@
     });
   }
 
-  /* Right-click on bridge line to delete it directly */
-  twoCanvas.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    const rect = twoCanvas.getBoundingClientRect();
-    const px = (e.clientX - rect.left) / currentScale;
-    const py = (e.clientY - rect.top) / currentScale;
 
-    for (const bridge of bridges) {
-      const fromBox = boxes.find(b => b.id === bridge.fromId);
-      const toBox   = boxes.find(b => b.id === bridge.toId);
-      if (!fromBox || !toBox) continue;
-      const [x1, y1] = sideAnchor(fromBox, bridge.fromSide || 'right');
-      const [x2, y2] = sideAnchor(toBox,   bridge.toSide   || 'left');
-      if (pointNearLine(px, py, x1, y1, x2, y2, 10)) {
-        removeBridge(bridge.id);
-        return;
-      }
-    }
-  });
-
-  /* Also handle right-click on overlay (for bridges behind boxes) */
-  overlay.addEventListener('contextmenu', (e) => {
-    const rect = pageContainer.getBoundingClientRect();
-    const px = (e.clientX - rect.left) / currentScale;
-    const py = (e.clientY - rect.top)  / currentScale;
-
-    for (const bridge of bridges) {
-      const fromBox = boxes.find(b => b.id === bridge.fromId);
-      const toBox   = boxes.find(b => b.id === bridge.toId);
-      if (!fromBox || !toBox) continue;
-      const [x1, y1] = sideAnchor(fromBox, bridge.fromSide || 'right');
-      const [x2, y2] = sideAnchor(toBox,   bridge.toSide   || 'left');
-      if (pointNearLine(px, py, x1, y1, x2, y2, 10)) {
-        e.preventDefault();
-        removeBridge(bridge.id);
-        return;
-      }
-    }
-  });
 
   function pointNearLine(px, py, x1, y1, x2, y2, threshold) {
     const A = px - x1, B = py - y1, C = x2 - x1, D = y2 - y1;
@@ -607,15 +510,8 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /*  Reconcile bridges after a box snaps to the grid                    */
-  /*  For each bridge connected to boxId:                                */
-  /*   - If the two boxes share the same Y (same row), set sides to     */
-  /*     right→left or left→right based on relative X, provided no      */
-  /*     other box sits between them on that row.                        */
-  /*   - If the two boxes share the same X (same col), set sides to     */
-  /*     bottom→top or top→bottom based on relative Y, provided no      */
-  /*     other box sits between them on that column.                     */
-  /*   - Otherwise delete the bridge.                                   */
+  /*  Reconcile bridge sides based on relative box positions              */
+  /*  Auto-determines the best from/to sides. Removes orphaned bridges.  */
   /* ------------------------------------------------------------------ */
 
   function reconcileAllBridges() {
@@ -626,56 +522,32 @@
       const b2 = boxes.find(b => b.id === bridge.toId);
       if (!a || !b2) { toRemove.push(bridge.id); return; }
 
-      const sameRow = Math.abs(a.y - b2.y) < 2;
-      const sameCol = Math.abs(a.x - b2.x) < 2;
+      // Determine best connection sides based on relative center positions
+      const aCx = a.x + a.w / 2, aCy = a.y + a.h / 2;
+      const bCx = b2.x + b2.w / 2, bCy = b2.y + b2.h / 2;
+      const dx = bCx - aCx;
+      const dy = bCy - aCy;
 
-      if (sameRow && !sameCol) {
-        const leftBox  = a.x < b2.x ? a : b2;
-        const rightBox = a.x < b2.x ? b2 : a;
-
-        const blocked = boxes.some(other => {
-          if (other.id === a.id || other.id === b2.id) return false;
-          return Math.abs(other.y - a.y) < 2 &&
-                 other.x > leftBox.x && other.x < rightBox.x;
-        });
-
-        if (blocked) {
-          toRemove.push(bridge.id);
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        // More horizontal separation → use left/right
+        if (dx >= 0) {
+          bridge.fromSide = 'right';
+          bridge.toSide   = 'left';
         } else {
-          if (a.x < b2.x) {
-            bridge.fromSide = 'right';
-            bridge.toSide   = 'left';
-          } else {
-            bridge.fromSide = 'left';
-            bridge.toSide   = 'right';
-          }
-          renderBridge(bridge);
-        }
-      } else if (sameCol && !sameRow) {
-        const topBox    = a.y < b2.y ? a : b2;
-        const bottomBox = a.y < b2.y ? b2 : a;
-
-        const blocked = boxes.some(other => {
-          if (other.id === a.id || other.id === b2.id) return false;
-          return Math.abs(other.x - a.x) < 2 &&
-                 other.y > topBox.y && other.y < bottomBox.y;
-        });
-
-        if (blocked) {
-          toRemove.push(bridge.id);
-        } else {
-          if (a.y < b2.y) {
-            bridge.fromSide = 'bottom';
-            bridge.toSide   = 'top';
-          } else {
-            bridge.fromSide = 'top';
-            bridge.toSide   = 'bottom';
-          }
-          renderBridge(bridge);
+          bridge.fromSide = 'left';
+          bridge.toSide   = 'right';
         }
       } else {
-        toRemove.push(bridge.id);
+        // More vertical separation → use top/bottom
+        if (dy >= 0) {
+          bridge.fromSide = 'bottom';
+          bridge.toSide   = 'top';
+        } else {
+          bridge.fromSide = 'top';
+          bridge.toSide   = 'bottom';
+        }
       }
+      renderBridge(bridge);
     });
 
     toRemove.forEach(id => removeBridge(id));
@@ -722,250 +594,381 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /*  JSON save / load                                                   */
+  /*  Text field management                                              */
   /* ------------------------------------------------------------------ */
 
-  function buildJSON() {
-    return JSON.stringify({
-      meta: {
-        font: globalFont,
-        strokeColor: globalStroke,
-        fillColor: globalFill,
-        darkMode: darkMode,
-        gridCols: gridCols,
-        gridRows: gridRows,
-        gridVGap: GRID_VGAP,
-        boxWidth: boxW,
-        boxHeight: boxH,
-        bridgeWidth: bridgeWidth,
-        sheetTitle: sheetTitle.value,
-      },
-      boxes: boxes,
-      bridges: bridges,
-    }, null, 2);
+  function createTextField(data) {
+    const tf = Object.assign({
+      id:          nextTextFieldId++,
+      x:           50,
+      y:           42,
+      text:        'Text',
+      font:        globalFont,
+      fontSize:    32,
+      fontWeight:  'bold',
+      bold:        true,
+      italic:      false,
+      width:       600,
+    }, data);
+
+    if (data && data.id && data.id >= nextTextFieldId) {
+      nextTextFieldId = data.id + 1;
+    }
+
+    textFields.push(tf);
+    renderTextField(tf);
+    return tf;
   }
 
-  function downloadJSON() {
-    const blob = new Blob([buildJSON()], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'talent_sheet.json';
-    a.click();
-    URL.revokeObjectURL(a.href);
+  function renderTextField(tf) {
+    let el = document.getElementById('tf-' + tf.id);
+    if (el) el.remove();
+
+    el = document.createElement('div');
+    el.className = 'text-field';
+    el.id = 'tf-' + tf.id;
+    el.style.left     = tf.x + 'px';
+    el.style.top      = tf.y + 'px';
+    el.style.width    = 'auto';
+    el.dataset.tfId   = tf.id;
+
+    const weight = tf.bold ? 'bold' : (tf.fontWeight === 'bold' ? 'bold' : 'normal');
+    const fStyle = tf.italic ? 'italic' : 'normal';
+    el.innerHTML = `
+      <span class="tf-drag" title="Drag to move">⋮</span>
+      <button class="tf-delete" title="Delete">&times;</button>
+      <div class="tf-input" contenteditable="true" role="textbox" data-placeholder="Text…"
+        style="font-family:${tf.font}; font-size:${tf.fontSize}px; font-weight:${weight}; font-style:${fStyle}"
+      >${tf.text}</div>`;
+
+    overlay.appendChild(el);
+    bindTextFieldEvents(el, tf);
+  }
+
+  function bindTextFieldEvents(el, tf) {
+    // Delete
+    el.querySelector('.tf-delete').addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeTextField(tf.id);
+    });
+
+    // Text editing
+    const input = el.querySelector('.tf-input');
+    function autoSizeInput() {
+      // Reset dimensions to measure natural size
+      input.style.width  = '0';
+      input.style.height = '0';
+      const newW = Math.max(60, input.scrollWidth + 2);
+      const newH = input.scrollHeight;
+      input.style.width  = newW + 'px';
+      input.style.height = newH + 'px';
+      tf.width = newW;
+    }
+    autoSizeInput();
+    input.addEventListener('input', () => {
+      tf.text = input.innerHTML;
+      autoSizeInput();
+      autoSave();
+    });
+
+    // Focus tracking — update toolbar to show this field's font/size
+    el.addEventListener('focusin', () => {
+      focusedTextFieldId = tf.id;
+      focusedBoxId = null;
+      fontSelect.disabled     = false;
+      fontSizeInput.disabled  = false;
+      fontBoldInput.disabled  = false;
+      fontItalicInput.disabled = false;
+      fontSelect.value      = tf.font  || globalFont;
+      fontSizeInput.value   = tf.fontSize || globalFontSize;
+      fontBoldInput.checked = !!(tf.bold);
+      fontItalicInput.checked = !!(tf.italic);
+    });
+    el.addEventListener('focusout', (e) => {
+      if (!el.contains(e.relatedTarget)) {
+        if (focusedTextFieldId === tf.id) {
+          focusedTextFieldId = null;
+          fontSelect.disabled     = true;
+          fontSizeInput.disabled  = true;
+          fontBoldInput.disabled  = true;
+          fontItalicInput.disabled = true;
+          fontSelect.value      = globalFont;
+          fontSizeInput.value   = globalFontSize;
+          fontBoldInput.checked = globalBold;
+          fontItalicInput.checked = globalItalic;
+        }
+      }
+    });
+
+    // Drag — initiated from the drag handle only
+    const dragHandle = el.querySelector('.tf-drag');
+    let dragging = false, startMX, startMY, startX, startY;
+    dragHandle.addEventListener('mousedown', (e) => {
+      dragging = true;
+      startMX = e.clientX;
+      startMY = e.clientY;
+      startX = tf.x;
+      startY = tf.y;
+      el.classList.add('dragging');
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const dx = (e.clientX - startMX) / currentScale;
+      const dy = (e.clientY - startMY) / currentScale;
+      tf.x = Math.max(0, startX + dx);
+      tf.y = Math.max(0, startY + dy);
+      el.style.left = tf.x + 'px';
+      el.style.top  = tf.y + 'px';
+    });
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      el.classList.remove('dragging');
+      autoSave();
+    });
+  }
+
+  function removeTextField(id) {
+    const el = document.getElementById('tf-' + id);
+    if (el) el.remove();
+    textFields = textFields.filter(t => t.id !== id);
+    autoSave();
   }
 
   /* ------------------------------------------------------------------ */
-  /*  PDF Export  (A1 pages, 594 × 841 mm)                               */
+  /*  Track the last-focused text input for symbol insertion             */
   /* ------------------------------------------------------------------ */
 
-  async function exportPDF() {
-    // A1 dimensions in mm
-    const A1_W_MM = 594;
-    const A1_H_MM = 841;
+  overlay.addEventListener('focusin', (e) => {
+    const t = e.target;
+    if (t.isContentEditable) {
+      lastFocusedInput = t;
+      btnInsertSymbol.disabled = false;
+    }
+  });
 
-    // Show a simple progress indicator
-    const progress = document.createElement('div');
-    progress.id = 'pdf-progress';
-    progress.style.cssText =
-      'position:fixed;top:0;left:0;width:100%;height:100%;' +
-      'display:flex;align-items:center;justify-content:center;' +
-      'background:rgba(0,0,0,0.45);z-index:9999;color:#fff;font-size:22px;';
-    progress.textContent = 'Rendering PDF…';
-    document.body.appendChild(progress);
-
-    try {
-      // Hide UI elements that shouldn't appear in the PDF
-      document.body.classList.add('pdf-exporting');
-      const deleteButtons = overlay.querySelectorAll('.box-delete');
-      deleteButtons.forEach(b => b.style.display = 'none');
-
-      // Temporarily set container & SVG to full A1 size (1:1) for capture.
-      // Model coordinates are already in A1-space so no repositioning needed.
-      const savedScale = currentScale;
-      pageContainer.style.width     = A1_WIDTH + 'px';
-      pageContainer.style.minHeight = pageHeight + 'px';
-      const svgEl = two.renderer.domElement;
-      svgEl.setAttribute('viewBox', `0 0 ${A1_WIDTH} ${pageHeight}`);
-      svgEl.setAttribute('width',  A1_WIDTH);
-      svgEl.setAttribute('height', pageHeight);
-      svgEl.style.width  = A1_WIDTH + 'px';
-      svgEl.style.height = pageHeight + 'px';
-      overlay.style.transform = 'scale(1)';
-      overlay.style.width  = A1_WIDTH + 'px';
-      overlay.style.height = pageHeight + 'px';
-
-      // Capture the page container at 2× for quality
-      const scaleFactor = 2;
-      const canvas = await html2canvas(pageContainer, {
-        scale: scaleFactor,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: null,
-        width: A1_WIDTH,
-        height: pageHeight,
-      });
-
-      // Restore scaled dimensions
-      deleteButtons.forEach(b => b.style.display = '');
-      document.body.classList.remove('pdf-exporting');
-      fitToWindow();
-
-      // How many A1 pages are needed vertically?
-      const pageWidthPx  = A1_WIDTH * scaleFactor;
-      const pageHeightPx = pageHeight * scaleFactor;
-
-      // One A1 page maps to the full captured width;
-      // derive the pixel height that corresponds to one A1 page.
-      const pxPerMm      = pageWidthPx / A1_W_MM;
-      const a1HeightPx   = A1_H_MM * pxPerMm;
-      const totalPages   = Math.max(1, Math.ceil(pageHeightPx / a1HeightPx));
-
-      // jsPDF: resolve the constructor from whichever global the UMD exposes
-      const jsPDFCtor = (window.jspdf && window.jspdf.jsPDF)
-                     || (window.jspdf && window.jspdf.default)
-                     || window.jsPDF;
-      if (!jsPDFCtor) {
-        throw new Error('jsPDF library failed to load. Check your internet connection and reload.');
+  // Clear lastFocusedInput only when focus leaves to something outside
+  // the insert-symbol button/menu (so clicking Dice doesn't disable itself)
+  document.addEventListener('focusin', (e) => {
+    const t = e.target;
+    if (t.closest('#insert-symbol-wrapper')) return;  // clicking Dice button/menu
+    if (t.closest('#toolbar') && !t.isContentEditable) {
+      // Focused a non-text toolbar control — clear last input
+      if (!overlay.contains(t)) {
+        lastFocusedInput = null;
+        btnInsertSymbol.disabled = true;
       }
-      const pdf = new jsPDFCtor({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: [A1_W_MM, A1_H_MM],
-        compress: true,
-      });
+    }
+  });
 
-      for (let page = 0; page < totalPages; page++) {
-        if (page > 0) pdf.addPage([A1_W_MM, A1_H_MM], 'portrait');
-
-        // Slice the canvas for this page
-        const srcY = page * a1HeightPx;
-        const srcH = Math.min(a1HeightPx, pageHeightPx - srcY);
-
-        const sliceCanvas = document.createElement('canvas');
-        sliceCanvas.width  = pageWidthPx;
-        sliceCanvas.height = srcH;
-        const ctx = sliceCanvas.getContext('2d');
-        ctx.drawImage(canvas, 0, srcY, pageWidthPx, srcH, 0, 0, pageWidthPx, srcH);
-
-        const imgData = sliceCanvas.toDataURL('image/png');
-        const imgH_mm = (srcH / pxPerMm);
-
-        pdf.addImage(imgData, 'PNG', 0, 0, A1_W_MM, imgH_mm, undefined, 'FAST');
-
-        progress.textContent = `Rendering PDF… page ${page + 1} / ${totalPages}`;
-        // Yield to let the browser paint the progress text
-        await new Promise(r => setTimeout(r, 0));
+  overlay.addEventListener('focusout', (e) => {
+    // If focus is going to the insert-symbol button/menu, keep lastFocusedInput
+    setTimeout(() => {
+      const active = document.activeElement;
+      if (active && active.closest('#insert-symbol-wrapper')) return;
+      if (!overlay.contains(active) && lastFocusedInput) {
+        lastFocusedInput = null;
+        btnInsertSymbol.disabled = true;
       }
+    }, 0);
+  });
 
-      pdf.save('talent_sheet.pdf');
-    } catch (err) {
-      console.error('PDF export failed:', err);
-      alert('PDF export failed: ' + err.message);
-    } finally {
-      progress.remove();
+  /**
+   * Insert a symbol (optionally colored/classed) at the caret in the
+   * last-focused contentEditable element.
+   * @param {string} text  – the character(s) to insert
+   * @param {string} [color] – optional CSS color for the span
+   * @param {string} [cls]   – optional CSS class(es) for the span
+   */
+  function insertAtCaret(text, color, cls) {
+    const el = lastFocusedInput;
+    if (!el) return;
+    el.focus();
+    if (el.isContentEditable) {
+      const makeSpan = () => {
+        const s = document.createElement('span');
+        if (color) s.style.color = color;
+        if (cls)   s.className = cls;
+        s.textContent = text;
+        return s;
+      };
+      const sel = window.getSelection();
+      if (sel.rangeCount) {
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        const node = (color || cls) ? makeSpan() : document.createTextNode(text);
+        range.insertNode(node);
+        // Move caret after the inserted node
+        range.setStartAfter(node);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } else {
+        const node = (color || cls) ? makeSpan() : document.createTextNode(text);
+        el.appendChild(node);
+      }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
     }
   }
 
-  function loadJSON(jsonStr) {
-    try {
-      const data = JSON.parse(jsonStr);
+  /* ------------------------------------------------------------------ */
+  /*  Apply font to legend                                               */
+  /* ------------------------------------------------------------------ */
 
-      // Clear current state
-      clearAll();
+  function applyFontToLegend() {
+    sheetLegend.style.fontFamily = globalFont;
+  }
 
-      // Restore meta
-      if (data.meta) {
-        globalFont   = data.meta.font   || 'sans-serif';
-        globalStroke  = data.meta.strokeColor || '#444444';
-        globalFill    = data.meta.fillColor   || '#f5f0e1';
-        darkMode      = !!data.meta.darkMode;
-        if (data.meta.gridCols) {
-          gridCols = Math.max(1, Math.min(30, data.meta.gridCols));
-          gridColsInput.value = gridCols;
-        }
-        if (data.meta.gridRows) {
-          gridRows = Math.max(1, Math.min(100, data.meta.gridRows));
-          gridRowsInput.value = gridRows;
-        }
-        if (data.meta.gridVGap != null) {
-          GRID_VGAP = Math.max(0, Math.min(200, data.meta.gridVGap));
-          vgapInput.value = GRID_VGAP;
-        }
-        if (data.meta.boxWidth) {
-          boxW = Math.max(60, Math.min(600, data.meta.boxWidth));
-          boxWInput.value = boxW;
-        }
-        if (data.meta.boxHeight) {
-          boxH = Math.max(60, Math.min(600, data.meta.boxHeight));
-          boxHInput.value = boxH;
-        }
-        if (data.meta.bridgeWidth != null) {
-          bridgeWidth = Math.max(0.5, Math.min(20, data.meta.bridgeWidth));
-          bridgeWInput.value = bridgeWidth;
-        }
-        recalcGrid();
-        if (data.meta.sheetTitle) {
-          sheetTitle.value = data.meta.sheetTitle;
-        }
-        applyTheme();
-        fontSelect.value      = globalFont;
-        colorStroke.value     = globalStroke;
-        colorFill.value       = globalFill;
-      }
+  /* ------------------------------------------------------------------ */
+  /*  Legend drag setup                                                  */
+  /* ------------------------------------------------------------------ */
 
-      // Restore boxes
-      if (data.boxes) {
-        data.boxes.forEach(b => createBox(b));
-      }
-
-      // Restore bridges
-      if (data.bridges) {
-        data.bridges.forEach(b => createBridge(b));
-      }
-
-      expandPage();
-    } catch (err) {
-      alert('Invalid JSON file: ' + err.message);
+  function positionLegend() {
+    const el = sheetLegend;
+    if (legendPos.x >= 0) {
+      el.style.left  = legendPos.x + 'px';
+      el.style.right = 'auto';
+    } else {
+      el.style.right = '50px';
+      el.style.left  = 'auto';
     }
+    el.style.top = legendPos.y + 'px';
   }
 
-  function clearAll() {
-    boxes.forEach(b => {
-      if (twoBoxShapes[b.id]) {
-        two.remove(twoBoxShapes[b.id]);
-      }
-      delete twoBoxShapes[b.id];
-      clearSideConnector(b.id);
+  let legendDragBound = false;
+  function initLegendDrag() {
+    positionLegend();
+    if (legendDragBound) return;
+    legendDragBound = true;
+
+    const el = sheetLegend;
+    el.style.cursor = 'grab';
+
+    let dragging = false, startMX, startMY, startX, startY;
+    el.addEventListener('mousedown', (e) => {
+      if (e.target.closest('input')) return;
+      dragging = true;
+      startMX = e.clientX;
+      startMY = e.clientY;
+      const rect = el.getBoundingClientRect();
+      const overlayRect = overlay.getBoundingClientRect();
+      startX = (rect.left - overlayRect.left) / currentScale;
+      startY = (rect.top - overlayRect.top) / currentScale;
+      // Switch to absolute left positioning
+      el.style.left  = startX + 'px';
+      el.style.right = 'auto';
+      el.style.cursor = 'grabbing';
+      e.preventDefault();
     });
-    bridges.forEach(b => {
-      if (twoBridgeLines[b.id]) two.remove(twoBridgeLines[b.id]);
-      delete twoBridgeLines[b.id];
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const dx = (e.clientX - startMX) / currentScale;
+      const dy = (e.clientY - startMY) / currentScale;
+      const nx = Math.max(0, startX + dx);
+      const ny = Math.max(0, startY + dy);
+      el.style.left = nx + 'px';
+      el.style.top  = ny + 'px';
     });
-    boxes = [];
-    bridges = [];
-    bridgePending = null;
-    // Remove only talent-box elements (preserve header & legend)
-    overlay.querySelectorAll('.talent-box').forEach(el => el.remove());
-    two.update();
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      el.style.cursor = 'grab';
+      legendPos.x = parseInt(el.style.left, 10);
+      legendPos.y = parseInt(el.style.top, 10);
+      autoSave();
+    });
   }
 
-  /* Auto-save to localStorage */
-  function autoSave() {
-    try {
-      localStorage.setItem('talentSheet', buildJSON());
-    } catch (_) { /* quota or private mode */ }
-  }
+  /* ------------------------------------------------------------------ */
+  /*  JSON utilities module initialisation  (json-utils.js)              */
+  /* ------------------------------------------------------------------ */
 
-  function autoLoad() {
-    try {
-      const saved = localStorage.getItem('talentSheet');
-      if (saved) {
-        loadJSON(saved);
-        return true;
-      }
-    } catch (_) { /* ignore */ }
-    return false;
-  }
+  const jsonEnv = {
+    two,
+    overlay,
+    twoBoxShapes,
+    twoBridgeLines,
+    // DOM refs
+    fontSelect,
+    fontSizeInput,
+    fontBoldInput,
+    fontItalicInput,
+    colorStroke,
+    colorFill,
+    colorBridge,
+    boxWInput,
+    boxHInput,
+    bridgeWInput,
+    // State getters / setters
+    get boxes()              { return boxes; },
+    set boxes(v)             { boxes = v; },
+    get bridges()            { return bridges; },
+    set bridges(v)           { bridges = v; },
+    get textFields()         { return textFields; },
+    set textFields(v)        { textFields = v; },
+    get legendPos()          { return legendPos; },
+    set legendPos(v)         { legendPos = v; },
+    get globalFont()         { return globalFont; },
+    set globalFont(v)        { globalFont = v; },
+    get globalFontSize()     { return globalFontSize; },
+    set globalFontSize(v)    { globalFontSize = v; },
+    get globalBold()         { return globalBold; },
+    set globalBold(v)        { globalBold = v; },
+    get globalItalic()       { return globalItalic; },
+    set globalItalic(v)      { globalItalic = v; },
+    get globalStroke()       { return globalStroke; },
+    set globalStroke(v)      { globalStroke = v; },
+    get globalFill()         { return globalFill; },
+    set globalFill(v)        { globalFill = v; },
+    get bridgeColor()        { return bridgeColor; },
+    set bridgeColor(v)       { bridgeColor = v; },
+    get darkMode()           { return darkMode; },
+    set darkMode(v)          { darkMode = v; },
+    get boxW()               { return boxW; },
+    set boxW(v)              { boxW = v; },
+    get boxH()               { return boxH; },
+    set boxH(v)              { boxH = v; },
+    get bridgeWidth()        { return bridgeWidth; },
+    set bridgeWidth(v)       { bridgeWidth = v; },
+    get titleTextFieldId()   { return titleTextFieldId; },
+    set titleTextFieldId(v)  { titleTextFieldId = v; },
+    get nextTextFieldId()    { return nextTextFieldId; },
+    set nextTextFieldId(v)   { nextTextFieldId = v; },
+    get bridgePending()      { return bridgePending; },
+    set bridgePending(v)     { bridgePending = v; },
+    // Functions
+    applyTheme,
+    createBox,
+    createBridge,
+    createTextField,
+    expandPage,
+    positionLegend,
+    applyFontToLegend,
+    clearSideConnector,
+  };
+
+  const { buildJSON, downloadJSON, loadJSON, clearAll, autoSave, autoLoad } =
+    window.createJsonUtilsModule(jsonEnv);
+
+  /* ------------------------------------------------------------------ */
+  /*  PDF Export module initialisation  (pdf-export.js)                   */
+  /* ------------------------------------------------------------------ */
+
+  const pdfEnv = {
+    get A1_WIDTH()     { return A1_WIDTH; },
+    get pageHeight()   { return pageHeight; },
+    overlay,
+    pageContainer,
+    two,
+    get currentScale() { return currentScale; },
+    get boxes()        { return boxes; },
+    get darkMode()     { return darkMode; },
+    CHAMFER_PCT: 0.20,
+    fitToWindow,
+  };
+
+  const { exportPDF } = window.createPdfExportModule(pdfEnv);
 
   /* ------------------------------------------------------------------ */
   /*  Theme                                                              */
@@ -981,182 +984,107 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /*  Toolbar event wiring                                               */
+  /*  Events module initialisation  (events.js)                          */
   /* ------------------------------------------------------------------ */
 
-  // --- Add Talent dropdown menu ---
-  btnAddBox.addEventListener('click', (e) => {
-    e.stopPropagation();
-    addTalentMenu.classList.toggle('open');
-  });
+  const eventsEnv = {
+    two,
+    overlay,
+    pageContainer,
+    twoCanvas,
+    // DOM refs
+    btnAddBox,
+    addTalentMenu,
+    btnTheme,
+    btnAddText,
+    btnSave,
+    btnLoad,
+    btnExportPdf,
+    fileInput,
+    fontSelect,
+    fontSizeInput,
+    fontBoldInput,
+    fontItalicInput,
+    btnInsertSymbol,
+    insertSymbolMenu,
+    insertAtCaret,
+    colorStroke,
+    colorFill,
+    colorBridge,
+    boxWInput,
+    boxHInput,
+    bridgeWInput,
+    sheetLegend,
+    // State getters / setters
+    get boxes()          { return boxes; },
+    get bridges()        { return bridges; },
+    get currentScale()   { return currentScale; },
+    get darkMode()       { return darkMode; },
+    set darkMode(v)      { darkMode = v; },
+    get globalFont()     { return globalFont; },
+    set globalFont(v)    { globalFont = v; },
+    get globalFontSize() { return globalFontSize; },
+    set globalFontSize(v){ globalFontSize = v; },
+    get globalBold()     { return globalBold; },
+    set globalBold(v)    { globalBold = v; },
+    get globalItalic()   { return globalItalic; },
+    set globalItalic(v)  { globalItalic = v; },
+    get focusedBoxId()   { return focusedBoxId; },
+    get focusedCostBoxId() { return focusedCostBoxId; },
+    get globalStroke()   { return globalStroke; },
+    set globalStroke(v)  { globalStroke = v; },
+    get globalFill()     { return globalFill; },
+    set globalFill(v)    { globalFill = v; },
+    get bridgeColor()    { return bridgeColor; },
+    set bridgeColor(v)   { bridgeColor = v; },
+    get bridgePending()  { return bridgePending; },
+    set bridgePending(v) { bridgePending = v; },
+    get hoveredBoxId()   { return hoveredBoxId; },
+    set hoveredBoxId(v)  { hoveredBoxId = v; },
+    get hoveredSide()    { return hoveredSide; },
+    set hoveredSide(v)   { hoveredSide = v; },
+    get boxW()           { return boxW; },
+    set boxW(v)          { boxW = v; },
+    get boxH()           { return boxH; },
+    set boxH(v)          { boxH = v; },
+    get bridgeWidth()    { return bridgeWidth; },
+    set bridgeWidth(v)   { bridgeWidth = v; },
+    get textPlaceMode()  { return textPlaceMode; },
+    set textPlaceMode(v) { textPlaceMode = v; },
+    get textFields()     { return textFields; },
+    get focusedTextFieldId() { return focusedTextFieldId; },
+    DEFAULT_BOX_H,
+    // Functions
+    fitToWindow,
+    createTextField,
+    renderTextField,
+    removeTextField,
+    applyFontToLegend,
+    autoSave,
+    expandPage,
+    applyTheme,
+    downloadJSON,
+    loadJSON,
+    exportPDF,
+    createBox,
+    findFreePosition,
+    updateBoxShape,
+    growBoxToFit,
+    renderBox,
+    createBridge,
+    renderBridge,
+    removeBridge,
+    reconcileAllBridges,
+    drawPageMargins,
+    detectSideExtended,
+    clearAllSideConnectors,
+    drawSideConnector,
+    sidesCanConnect,
+    sideAnchor,
+    pointNearLine,
+  };
 
-  addTalentMenu.querySelectorAll('button[data-type]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const ttype = btn.dataset.type;
-      addTalentMenu.classList.remove('open');
-      const pos = findFreePosition();
-      createBox({ x: pos.x, y: pos.y, talentType: ttype });
-      expandPage();
-      autoSave();
-    });
-  });
-
-  // Close dropdown when clicking elsewhere
-  document.addEventListener('click', () => {
-    addTalentMenu.classList.remove('open');
-  });
-
-  btnTheme.addEventListener('click', () => {
-    darkMode = !darkMode;
-    applyTheme();
-    autoSave();
-  });
-
-  btnSave.addEventListener('click', () => {
-    downloadJSON();
-  });
-
-  btnLoad.addEventListener('click', () => {
-    fileInput.click();
-  });
-
-  btnExportPdf.addEventListener('click', () => {
-    exportPDF();
-  });
-
-  fileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      loadJSON(ev.target.result);
-    };
-    reader.readAsText(file);
-    fileInput.value = '';
-  });
-
-  fontSelect.addEventListener('change', () => {
-    globalFont = fontSelect.value;
-    boxes.forEach(b => {
-      b.font = globalFont;
-      const el = document.getElementById('box-' + b.id);
-      if (el) {
-        el.querySelectorAll('.box-name, .box-description, .box-cost').forEach(f => {
-          f.style.fontFamily = globalFont;
-        });
-      }
-    });
-    autoSave();
-  });
-
-  colorStroke.addEventListener('input', () => {
-    globalStroke = colorStroke.value;
-    boxes.forEach(b => {
-      b.strokeColor = globalStroke;
-      updateBoxShape(b);
-    });
-    autoSave();
-  });
-
-  colorFill.addEventListener('input', () => {
-    globalFill = colorFill.value;
-    boxes.forEach(b => {
-      b.fillColor = globalFill;
-      updateBoxShape(b);
-    });
-    autoSave();
-  });
-
-  /** Shared helper: after any grid/dimension change, re-snap & redraw */
-  function refreshGrid() {
-    recalcGrid();
-    boxes.forEach(b => {
-      b.w = boxW;                       // apply new box width
-      if (b.h <= boxH || b.h <= DEFAULT_BOX_H) b.h = boxH;  // apply new box height
-      b.x = snapX(b.x);
-      b.y = snapY(b.y);
-      const el = document.getElementById('box-' + b.id);
-      if (el) {
-        el.style.left   = b.x + 'px';
-        el.style.top    = b.y + 'px';
-        el.style.width  = b.w + 'px';
-        el.style.height = b.h + 'px';
-      }
-      updateBoxShape(b);
-    });
-    // Reconcile all bridges after all boxes have snapped
-    reconcileAllBridges();
-    drawPageMargins();
-    two.update();
-    autoSave();
-  }
-
-  gridColsInput.addEventListener('change', () => {
-    const val = parseInt(gridColsInput.value, 10);
-    if (isNaN(val) || val < 1) { gridColsInput.value = gridCols; return; }
-    gridCols = Math.max(1, Math.min(30, val));
-    gridColsInput.value = gridCols;
-    refreshGrid();
-  });
-
-  gridRowsInput.addEventListener('change', () => {
-    const val = parseInt(gridRowsInput.value, 10);
-    if (isNaN(val) || val < 1) { gridRowsInput.value = gridRows; return; }
-    gridRows = Math.max(1, Math.min(100, val));
-    gridRowsInput.value = gridRows;
-    refreshGrid();
-  });
-
-  vgapInput.addEventListener('change', () => {
-    const val = parseInt(vgapInput.value, 10);
-    if (isNaN(val) || val < 0) { vgapInput.value = GRID_VGAP; return; }
-    GRID_VGAP = Math.max(0, Math.min(200, val));
-    vgapInput.value = GRID_VGAP;
-    refreshGrid();
-  });
-
-  boxWInput.addEventListener('change', () => {
-    const val = parseInt(boxWInput.value, 10);
-    if (isNaN(val) || val < 60) { boxWInput.value = boxW; return; }
-    boxW = Math.max(60, Math.min(600, val));
-    boxWInput.value = boxW;
-    refreshGrid();
-  });
-
-  boxHInput.addEventListener('change', () => {
-    const val = parseInt(boxHInput.value, 10);
-    if (isNaN(val) || val < 60) { boxHInput.value = boxH; return; }
-    boxH = Math.max(60, Math.min(600, val));
-    boxHInput.value = boxH;
-    refreshGrid();
-  });
-
-  bridgeWInput.addEventListener('change', () => {
-    const val = parseFloat(bridgeWInput.value);
-    if (isNaN(val) || val < 0.5) { bridgeWInput.value = bridgeWidth; return; }
-    bridgeWidth = Math.max(0.5, Math.min(20, val));
-    bridgeWInput.value = bridgeWidth;
-    bridges.forEach(b => renderBridge(b));
-    two.update();
-    autoSave();
-  });
-
-  sheetTitle.addEventListener('input', () => {
-    autoSave();
-  });
-
-  /* ------------------------------------------------------------------ */
-  /*  Keyboard shortcut: Escape cancels bridge mode                      */
-  /* ------------------------------------------------------------------ */
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && bridgePending) {
-      const prevEl = document.getElementById('box-' + bridgePending.boxId);
-      if (prevEl) prevEl.style.outline = '';
-      bridgePending = null;
-    }
-  });
+  window.createEventsModule(eventsEnv);
 
   /* ------------------------------------------------------------------ */
   /*  Boot                                                               */
@@ -1165,11 +1093,19 @@
   fitToWindow();   // set scale & sizes before any drawing
 
   if (!autoLoad()) {
+    // Create default title text field
+    const titleTf = createTextField({
+      x: 50, y: 42, text: 'Talent Sheet', font: globalFont,
+      fontSize: 32, fontWeight: 'bold', width: 600,
+    });
+    titleTextFieldId = titleTf.id;
     // Start with one empty box so the user sees something
-    createBox({ x: gridX(0), y: gridY(0) });
+    createBox({ x: PAGE_MARGIN + 20, y: GRID_TOP + 20 });
     autoSave();
   }
 
+  initLegendDrag();
+  applyFontToLegend();
   drawPageMargins();
   fitToWindow();   // recalc after content may have changed page height
   two.update();
