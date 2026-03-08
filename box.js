@@ -53,6 +53,95 @@ window.createBoxModule = function (env) {
   }
 
   /* ------------------------------------------------------------------ */
+  /*  Background image rendering                                         */
+  /* ------------------------------------------------------------------ */
+
+  function renderBgImage(box) {
+    let el = document.getElementById('box-bg-' + box.id);
+
+    if (!box.bgImage || !box.bgImage.src) {
+      if (el) el.remove();
+      return;
+    }
+
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'box-bg-image';
+      el.id = 'box-bg-' + box.id;
+      const img = document.createElement('img');
+      img.src = box.bgImage.src;
+      img.draggable = false;
+      el.appendChild(img);
+
+      const handle = document.createElement('div');
+      handle.className = 'bg-resize-handle';
+      handle.title = 'Resize image';
+      el.appendChild(handle);
+
+      const del = document.createElement('button');
+      del.className = 'bg-delete';
+      del.title = 'Remove image';
+      del.innerHTML = '&times;';
+      el.appendChild(del);
+
+      env.overlay.appendChild(el);
+      bindBgImageEvents(el, box);
+    }
+
+    // Update position and size (centered on box, scaled by ratios)
+    const ratioW = box.bgImage.ratioW != null ? box.bgImage.ratioW : (box.bgImage.ratio || 1.2);
+    const ratioH = box.bgImage.ratioH != null ? box.bgImage.ratioH : (box.bgImage.ratio || 1.2);
+    const imgW = box.w * ratioW;
+    const imgH = box.h * ratioH;
+    const imgX = box.x + (box.w - imgW) / 2;
+    const imgY = box.y + (box.h - imgH) / 2;
+
+    el.style.left   = imgX + 'px';
+    el.style.top    = imgY + 'px';
+    el.style.width  = imgW + 'px';
+    el.style.height = imgH + 'px';
+  }
+
+  function bindBgImageEvents(el, box) {
+    // Delete image
+    el.querySelector('.bg-delete').addEventListener('click', (e) => {
+      e.stopPropagation();
+      box.bgImage = null;
+      el.remove();
+      env.autoSave();
+    });
+
+    // Resize (adjust width/height ratios independently by dragging lower-right corner, stays centered)
+    const resizeHandle = el.querySelector('.bg-resize-handle');
+    let resizing = false, startMX, startMY, startRatioW, startRatioH;
+
+    resizeHandle.addEventListener('mousedown', (e) => {
+      resizing = true;
+      startMX = e.clientX;
+      startMY = e.clientY;
+      startRatioW = box.bgImage.ratioW != null ? box.bgImage.ratioW : (box.bgImage.ratio || 1.2);
+      startRatioH = box.bgImage.ratioH != null ? box.bgImage.ratioH : (box.bgImage.ratio || 1.2);
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!resizing) return;
+      const dx = (e.clientX - startMX) / env.currentScale;
+      const dy = (e.clientY - startMY) / env.currentScale;
+      box.bgImage.ratioW = Math.max(0.3, startRatioW + dx / box.w);
+      box.bgImage.ratioH = Math.max(0.3, startRatioH + dy / box.h);
+      renderBgImage(box);
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!resizing) return;
+      resizing = false;
+      env.autoSave();
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
   /*  Create / render a single talent box                                */
   /* ------------------------------------------------------------------ */
 
@@ -109,6 +198,8 @@ window.createBoxModule = function (env) {
     el.style.left   = box.x + 'px';
     el.style.top    = box.y + 'px';
     el.style.width  = box.w + 'px';
+    el.style.setProperty('--box-fill-color', fill);
+    el.style.setProperty('--box-stroke-color', stroke);
     el.style.height = box.h + 'px';
     const clampedChamfer = Math.min(chamfer(box.w), box.w / 4, box.h / 4);
     el.style.setProperty('--chamfer', clampedChamfer + 'px');
@@ -121,6 +212,8 @@ window.createBoxModule = function (env) {
 
     el.innerHTML = `
       <button class="box-delete" title="Delete">&times;</button>
+      <button class="box-add-bg" title="Set background image">&#8862;</button>
+      <input type="file" class="box-bg-input" accept="image/*" style="display:none">
       <div class="box-header">
         <input type="checkbox" class="box-checkbox" ${box.acquired ? 'checked' : ''} title="Acquired">
         <div class="box-name" contenteditable="true" role="textbox" data-placeholder="Name" style="font-family:${box.font}; font-size:${box.fontSize}px; font-weight:${box.bold ? 'bold' : 'normal'}; font-style:${box.italic ? 'italic' : 'normal'}">${box.name}</div>
@@ -141,6 +234,7 @@ window.createBoxModule = function (env) {
     bindBoxEvents(el, box);
 
     env.two.update();
+    renderBgImage(box);
   }
 
   /* ------------------------------------------------------------------ */
@@ -171,6 +265,29 @@ window.createBoxModule = function (env) {
     el.querySelector('.box-delete').addEventListener('click', (e) => {
       e.stopPropagation();
       removeBox(box.id);
+    });
+
+    // --- Background image import ---
+    el.querySelector('.box-add-bg').addEventListener('click', (e) => {
+      e.stopPropagation();
+      el.querySelector('.box-bg-input').click();
+    });
+    el.querySelector('.box-bg-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const oldRatioW = (box.bgImage && box.bgImage.ratioW != null) ? box.bgImage.ratioW : ((box.bgImage && box.bgImage.ratio) || 1.2);
+        const oldRatioH = (box.bgImage && box.bgImage.ratioH != null) ? box.bgImage.ratioH : ((box.bgImage && box.bgImage.ratio) || 1.2);
+        box.bgImage = { src: ev.target.result, ratioW: oldRatioW, ratioH: oldRatioH };
+        // Remove existing bg element so renderBgImage creates a fresh one
+        const bgEl = document.getElementById('box-bg-' + box.id);
+        if (bgEl) bgEl.remove();
+        renderBgImage(box);
+        env.autoSave();
+      };
+      reader.readAsDataURL(file);
+      e.target.value = '';
     });
 
     // --- Checkbox (acquired) ---
@@ -324,8 +441,11 @@ window.createBoxModule = function (env) {
     const el = document.getElementById('box-' + box.id);
     const clampedChamfer = Math.min(chamfer(box.w), box.w / 4, box.h / 4);
     el.style.setProperty('--chamfer', clampedChamfer + 'px');
+    el.style.setProperty('--box-fill-color', fill);
+    el.style.setProperty('--box-stroke-color', stroke);
     env.twoBoxShapes[box.id] = shape;
     env.two.update();
+    renderBgImage(box);
   }
 
   /* ------------------------------------------------------------------ */
@@ -392,6 +512,10 @@ window.createBoxModule = function (env) {
     const el = document.getElementById('box-' + id);
     if (el) el.remove();
 
+    // Remove background image
+    const bgEl = document.getElementById('box-bg-' + id);
+    if (bgEl) bgEl.remove();
+
     env.boxes = env.boxes.filter(b => b.id !== id);
     env.two.update();
     env.reconcileAllBridges();
@@ -436,5 +560,6 @@ window.createBoxModule = function (env) {
     findFreePosition,
     makeChamferedRect,
     chamfer,
+    renderBgImage,
   };
 };

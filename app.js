@@ -961,11 +961,17 @@
     overlay,
     pageContainer,
     two,
+    get bridges()            { return bridges; },
+    set bridges(v)           { bridges = v; },
+    get bridgeColor()        { return bridgeColor; },
+    set bridgeColor(v)       { bridgeColor = v; },
+    get bridgeWidth()        { return bridgeWidth; },
     get currentScale() { return currentScale; },
     get boxes()        { return boxes; },
     get darkMode()     { return darkMode; },
     CHAMFER_PCT: 0.20,
     fitToWindow,
+    makeChamferedRect,
   };
 
   const { exportPDF } = window.createPdfExportModule(pdfEnv);

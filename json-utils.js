@@ -156,29 +156,106 @@ window.createJsonUtilsModule = function (env) {
     env.bridgePending    = null;
 
     // Remove talent-box and text-field elements (preserve legend)
-    env.overlay.querySelectorAll('.talent-box, .text-field').forEach(el => el.remove());
+    env.overlay.querySelectorAll('.talent-box, .text-field, .box-bg-image').forEach(el => el.remove());
     env.two.update();
   }
 
   /* ------------------------------------------------------------------ */
-  /*  Auto-save / auto-load (localStorage)                               */
+  /*  IndexedDB helpers for large auto-save data                         */
+  /* ------------------------------------------------------------------ */
+
+  const IDB_NAME = 'TalentSheetDB';
+  const IDB_STORE = 'state';
+  const IDB_KEY = 'talentSheet';
+
+  function openIDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) {
+          db.createObjectStore(IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  function idbSet(key, value) {
+    return openIDB().then(db => new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(value, key);
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+    }));
+  }
+
+  function idbGet(key) {
+    return openIDB().then(db => new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(key);
+      req.onsuccess = () => { db.close(); resolve(req.result); };
+      req.onerror = () => { db.close(); reject(req.error); };
+    }));
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Auto-save / auto-load (IndexedDB primary, localStorage fallback)   */
   /* ------------------------------------------------------------------ */
 
   function autoSave() {
+    const json = buildJSON();
+    // Save to IndexedDB (handles large image data)
+    idbSet(IDB_KEY, json).catch(() => {});
+    // Also try localStorage as a fallback
     try {
-      localStorage.setItem('talentSheet', buildJSON());
-    } catch (_) { /* quota or private mode */ }
+      localStorage.setItem('talentSheet', json);
+    } catch (_) {
+      // Quota exceeded — strip image data for localStorage copy
+      try {
+        const data = JSON.parse(json);
+        if (data.boxes) {
+          data.boxes.forEach(b => {
+            if (b.bgImage && b.bgImage.src) {
+              b.bgImage = { ratioW: b.bgImage.ratioW, ratioH: b.bgImage.ratioH, ratio: b.bgImage.ratio };
+            }
+          });
+        }
+        localStorage.setItem('talentSheet', JSON.stringify(data));
+      } catch (_2) { /* private mode or still too large */ }
+    }
   }
 
   function autoLoad() {
+    // autoLoad is called synchronously at boot, so we try localStorage
+    // first (sync), then upgrade from IndexedDB (async) if it has
+    // richer data (e.g. with embedded images).
+    let loaded = false;
     try {
       const saved = localStorage.getItem('talentSheet');
       if (saved) {
         loadJSON(saved);
-        return true;
+        loaded = true;
       }
     } catch (_) { /* ignore */ }
-    return false;
+
+    // Async: check IndexedDB for a version with image data
+    idbGet(IDB_KEY).then(saved => {
+      if (!saved) return;
+      // Only reload from IDB if it has image data that localStorage lost
+      try {
+        const idbData = JSON.parse(saved);
+        const hasImages = idbData.boxes && idbData.boxes.some(
+          b => b.bgImage && b.bgImage.src
+        );
+        if (hasImages) {
+          loadJSON(saved);
+        }
+      } catch (_) { /* ignore parse errors */ }
+    }).catch(() => {});
+
+    return loaded;
   }
 
   return { buildJSON, downloadJSON, loadJSON, clearAll, autoSave, autoLoad };
