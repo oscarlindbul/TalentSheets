@@ -417,6 +417,7 @@
     twoBoxShapes,
     twoBridgeLines,
     overlay,
+    pageContainer,
     get boxes()          { return boxes; },
     set boxes(v)         { boxes = v; },
     get bridges()        { return bridges; },
@@ -472,6 +473,8 @@
     expandPage,
     autoSave() { autoSave(); },
     clearSideConnector,
+    detectSideExtended,
+    detectSideConnectorHit,
   };
 
   const {
@@ -487,6 +490,12 @@
   /*  Side-connector helpers                                             */
   /* ------------------------------------------------------------------ */
 
+  const SIDE_CONNECTOR_RADIUS = 16;
+  const SIDE_CONNECTOR_OUTER_PAD = 34;
+  const SIDE_CONNECTOR_INNER_PAD = 24;
+  const SIDE_CONNECTOR_CENTER_OFFSET = 6;
+  const SIDE_CONNECTOR_HIT_PAD = 8;
+
   /** Return the anchor point on the given side of a box */
   function sideAnchor(box, side) {
     switch (side) {
@@ -498,10 +507,47 @@
     return [box.x + box.w / 2, box.y + box.h / 2];
   }
 
+  function sideConnectorCenter(box, side) {
+    let [cx, cy] = sideAnchor(box, side);
+
+    switch (side) {
+      case 'top':
+        cy -= SIDE_CONNECTOR_CENTER_OFFSET;
+        break;
+      case 'bottom':
+        cy += SIDE_CONNECTOR_CENTER_OFFSET;
+        break;
+      case 'left':
+        cx -= SIDE_CONNECTOR_CENTER_OFFSET;
+        break;
+      case 'right':
+        cx += SIDE_CONNECTOR_CENTER_OFFSET;
+        break;
+    }
+
+    return [cx, cy];
+  }
+
+  function detectSideConnectorHit(box, px, py) {
+    let best = null;
+    const hitRadius = SIDE_CONNECTOR_RADIUS + SIDE_CONNECTOR_HIT_PAD;
+
+    ['top', 'right', 'bottom', 'left'].forEach(side => {
+      const [cx, cy] = sideConnectorCenter(box, side);
+      const dist = Math.hypot(px - cx, py - cy);
+      if (dist > hitRadius) return;
+      if (!best || dist < best.dist) {
+        best = { side, dist };
+      }
+    });
+
+    return best ? best.side : null;
+  }
+
   /** Detect which side the mouse is nearest to, with extended detection outside the box */
   function detectSideExtended(box, px, py) {
-    const pad = 24;   // px detection band OUTSIDE each edge
-    const inner = 18; // px detection band INSIDE each edge
+    const pad = SIDE_CONNECTOR_OUTER_PAD;   // px detection band OUTSIDE each edge
+    const inner = SIDE_CONNECTOR_INNER_PAD; // px detection band INSIDE each edge
 
     // Check if point is within the extended bounding box
     if (px < box.x - pad || px > box.x + box.w + pad ||
@@ -550,8 +596,8 @@
 
   function drawSideConnector(box, side) {
     clearSideConnector(box.id);
-    const r = 12;
-    const [cx, cy] = sideAnchor(box, side);
+    const r = SIDE_CONNECTOR_RADIUS;
+    const [cx, cy] = sideConnectorCenter(box, side);
 
     // Build a half-circle arc on the OUTSIDE of the given side
     const pts = [];
@@ -574,7 +620,7 @@
     path.automatic = false;
     path.fill      = 'rgba(74,144,217,0.35)';
     path.stroke    = '#4a90d9';
-    path.linewidth = 1.5;
+    path.linewidth = 2;
 
     sideConnectorShapes[box.id] = path;
     two.update();
@@ -1504,6 +1550,7 @@
     reconcileAllBridges,
     drawPageMargins,
     detectSideExtended,
+    detectSideConnectorHit,
     clearAllSideConnectors,
     drawSideConnector,
     sidesCanConnect,

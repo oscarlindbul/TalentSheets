@@ -398,11 +398,23 @@ window.createBoxModule = function (env) {
     el.addEventListener('mousedown', (e) => {
       // Don't drag when clicking interactive elements, side connectors, or resize handle
       if (e.target.closest('input, [contenteditable], button, .ranked-indicator, .box-cost, .side-connector, .box-resize-handle')) return;
+
+      const rect = env.pageContainer.getBoundingClientRect();
+      const px = (e.clientX - rect.left) / env.currentScale;
+      const py = (e.clientY - rect.top) / env.currentScale;
+      const connectorSide = env.detectSideConnectorHit(box, px, py);
+
       if (e.ctrlKey || e.shiftKey) {
         env.toggleObjectSelection('box', box.id);
       } else if (!env.isBoxSelected(box.id)) {
         env.setSingleObjectSelection('box', box.id);
       }
+
+      if (connectorSide) {
+        e.preventDefault();
+        return;
+      }
+
       dragging = true;
       startMX = e.clientX;
       startMY = e.clientY;

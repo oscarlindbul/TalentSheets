@@ -76,21 +76,56 @@ window.createEventsModule = function (env) {
   /* Click on the overlay to start/complete a bridge via hovered side,
      or place a text field in text-place mode */
   overlay.addEventListener('click', (e) => {
-    if (!e.ctrlKey && !e.shiftKey && !e.target.closest('.talent-box, .text-field')) {
+    const rect = pageContainer.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / env.currentScale;
+    const py = (e.clientY - rect.top)  / env.currentScale;
+
+    let connectorBox = null;
+    let connectorSide = null;
+
+    const clickedBoxEl = e.target.closest('.talent-box');
+    if (clickedBoxEl) {
+      const boxId = parseInt(clickedBoxEl.dataset.boxId, 10);
+      const box = env.boxes.find(candidate => candidate.id === boxId);
+      const side = box ? env.detectSideConnectorHit(box, px, py) : null;
+      if (box && side) {
+        connectorBox = box;
+        connectorSide = side;
+      }
+    }
+
+    if (!connectorBox) {
+      for (const box of env.boxes) {
+        const side = env.detectSideConnectorHit(box, px, py);
+        if (!side) continue;
+        connectorBox = box;
+        connectorSide = side;
+        break;
+      }
+    }
+
+    if (!e.ctrlKey && !e.shiftKey && !e.target.closest('.talent-box, .text-field') && !connectorBox) {
       env.clearObjectSelection();
       clearPendingBridge();
     }
 
-    if (e.target.closest('.talent-box')) return;
+    if (connectorBox) {
+      env.hoveredBoxId = connectorBox.id;
+      env.hoveredSide = connectorSide;
+      env.drawSideConnector(connectorBox, connectorSide);
+    } else if (clickedBoxEl) {
+      return;
+    }
+
     if (e.target.closest('input, [contenteditable], button, .ranked-indicator, .box-cost, .text-field')) return;
 
     // --- Text-place mode: create a text field at click position ---
     if (env.textPlaceMode) {
-      const rect = env.overlay.parentElement.getBoundingClientRect();
-      const px = (e.clientX - rect.left) / env.currentScale;
-      const py = (e.clientY - rect.top)  / env.currentScale;
+      const textRect = env.overlay.parentElement.getBoundingClientRect();
+      const textPx = (e.clientX - textRect.left) / env.currentScale;
+      const textPy = (e.clientY - textRect.top)  / env.currentScale;
       env.createTextField({
-        x: px, y: py, text: 'Text',
+        x: textPx, y: textPy, text: 'Text',
         font: env.globalFont, fontSize: env.globalFontSize,
         fontWeight: 'normal', width: 300,
       });
@@ -213,10 +248,17 @@ window.createEventsModule = function (env) {
 
   document.addEventListener('mousedown', (e) => {
     if (e.ctrlKey || e.shiftKey) return;
-    if (!e.target.closest('.talent-box, .text-field')) {
-      env.clearObjectSelection();
-      clearPendingBridge();
-    }
+    if (e.target.closest('.talent-box, .text-field')) return;
+
+    const rect = pageContainer.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / env.currentScale;
+    const py = (e.clientY - rect.top)  / env.currentScale;
+
+    const hitConnector = env.boxes.some(box => env.detectSideConnectorHit(box, px, py));
+    if (hitConnector) return;
+
+    env.clearObjectSelection();
+    clearPendingBridge();
   });
 
   /* ------------------------------------------------------------------ */
