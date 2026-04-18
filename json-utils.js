@@ -36,8 +36,10 @@ window.createJsonUtilsModule = function (env) {
       },
       boxes:      env.boxes,
       bridges:    env.bridges,
+      dashedLines: env.dashedLines,
       textFields: env.textFields,
       legendPos:  env.legendPos,
+      legendSize: env.legendSize,
     }, null, 2);
   }
 
@@ -116,6 +118,11 @@ window.createJsonUtilsModule = function (env) {
         data.bridges.forEach(b => env.createBridge(b));
       }
 
+      // Restore dashed lines
+      if (data.dashedLines) {
+        data.dashedLines.forEach(line => env.createDashedLine(line));
+      }
+
       // Restore text fields
       if (data.textFields) {
         data.textFields.forEach(tf => env.createTextField(tf));
@@ -124,6 +131,9 @@ window.createJsonUtilsModule = function (env) {
       // Restore legend position
       if (data.legendPos) {
         env.legendPos = data.legendPos;
+      }
+      if (data.legendSize) {
+        env.legendSize = data.legendSize;
       }
       env.positionLegend();
       env.applyFontToLegend();
@@ -150,13 +160,20 @@ window.createJsonUtilsModule = function (env) {
       if (env.twoBridgeLines[b.id]) env.two.remove(env.twoBridgeLines[b.id]);
       delete env.twoBridgeLines[b.id];
     });
+    env.dashedLines.forEach(line => {
+      if (env.twoDashedLines[line.id]) env.two.remove(env.twoDashedLines[line.id]);
+      delete env.twoDashedLines[line.id];
+    });
 
     env.boxes      = [];
     env.bridges    = [];
+    env.dashedLines = [];
     env.textFields = [];
+    env.nextDashedLineId = 1;
     env.nextTextFieldId  = 1;
     env.titleTextFieldId = null;
     env.bridgePending    = null;
+    env.clearDashedLinePreview();
     env.clearObjectSelection();
 
     // Remove talent-box and text-field elements (preserve legend)

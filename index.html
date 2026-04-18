@@ -30,6 +30,7 @@
     </div>
     <button id="btn-toggle-theme" title="Toggle Light/Dark Mode">&#9790; Theme</button>
     <button id="btn-add-text" title="Click, then click on the page to place a text field">&#84; Add Text</button>
+    <button id="btn-add-dashed-line" title="Click, then click two points to place a dashed line">&#9473; Dashed Line</button>
     <button id="btn-save" title="Save to JSON">&#128190; Save</button>
     <button id="btn-load" title="Load from JSON">&#128194; Load</button>
     <input type="file" id="file-input" accept=".json" style="display:none">
@@ -80,13 +81,16 @@
       <div id="overlay">
       <!-- Legend (created here, made draggable by JS) -->
       <div id="sheet-legend">
-        <div class="legend-title">Legend</div>
-        <div class="legend-item"><span class="legend-swatch" style="background:#c94040"></span> Active Talent</div>
-        <div class="legend-item"><span class="legend-swatch" style="background:#3c78b5"></span> Passive Talent</div>
-        <div class="legend-item"><span class="legend-swatch legend-swatch-skill" style="background:#7b4fbf"></span> Skill</div>
-        <div class="legend-item"><input type="checkbox" disabled> Acquired</div>
-        <div class="legend-item"><span class="legend-ranked"><span></span><span></span><span></span><span></span></span> Ranked Talent</div>
-        <div class="legend-item"><span class="legend-line"></span> Spec Pathway</div>
+        <div class="legend-content">
+          <div class="legend-title">Legend</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:#c94040"></span> Active Talent</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:#3c78b5"></span> Passive Talent</div>
+          <div class="legend-item"><span class="legend-swatch legend-swatch-skill" style="background:#7b4fbf"></span> Skill</div>
+          <div class="legend-item"><input type="checkbox" disabled> Acquired</div>
+          <div class="legend-item"><span class="legend-ranked"><span></span><span></span><span></span><span></span></span> Ranked Talent</div>
+          <div class="legend-item"><span class="legend-line"></span> Spec Pathway</div>
+        </div>
+        <div class="legend-resize-handle" title="Resize legend"></div>
       </div>
     </div>
   </div>

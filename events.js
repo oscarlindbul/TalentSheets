@@ -18,6 +18,11 @@ window.createEventsModule = function (env) {
     env.bridgePending = null;
   }
 
+  function clearPendingDashedLine() {
+    env.dashedLinePending = null;
+    env.clearDashedLinePreview();
+  }
+
   /* ------------------------------------------------------------------ */
   /*  DOM refs (from env)                                                */
   /* ------------------------------------------------------------------ */
@@ -44,6 +49,14 @@ window.createEventsModule = function (env) {
     const rect = pageContainer.getBoundingClientRect();
     const px = (e.clientX - rect.left) / env.currentScale;
     const py = (e.clientY - rect.top)  / env.currentScale;
+
+    if (env.dashedLinePlaceMode) {
+      env.clearAllSideConnectors();
+      if (env.dashedLinePending) {
+        env.updateDashedLinePreview(env.dashedLinePending.x1, env.dashedLinePending.y1, px, py);
+      }
+      return;
+    }
 
     let foundBox  = null;
     let foundSide = null;
@@ -79,6 +92,29 @@ window.createEventsModule = function (env) {
     const rect = pageContainer.getBoundingClientRect();
     const px = (e.clientX - rect.left) / env.currentScale;
     const py = (e.clientY - rect.top)  / env.currentScale;
+
+    if (e.target.closest('input, [contenteditable], button, .ranked-indicator, .box-cost, .text-field')) return;
+
+    if (env.dashedLinePlaceMode) {
+      if (!env.dashedLinePending) {
+        env.dashedLinePending = { x1: px, y1: py };
+        env.updateDashedLinePreview(px, py, px, py);
+      } else {
+        const [x2, y2] = env.snapDashedLineEnd(env.dashedLinePending.x1, env.dashedLinePending.y1, px, py);
+        env.createDashedLine({
+          x1: env.dashedLinePending.x1,
+          y1: env.dashedLinePending.y1,
+          x2,
+          y2,
+        });
+        clearPendingDashedLine();
+        env.dashedLinePlaceMode = false;
+        env.btnAddDashedLine.classList.remove('active');
+        env.overlay.classList.remove('dashed-line-place-mode');
+        env.autoSave();
+      }
+      return;
+    }
 
     let connectorBox = null;
     let connectorSide = null;
@@ -116,8 +152,6 @@ window.createEventsModule = function (env) {
     } else if (clickedBoxEl) {
       return;
     }
-
-    if (e.target.closest('input, [contenteditable], button, .ranked-indicator, .box-cost, .text-field')) return;
 
     // --- Text-place mode: create a text field at click position ---
     if (env.textPlaceMode) {
@@ -196,6 +230,13 @@ window.createEventsModule = function (env) {
         return;
       }
     }
+
+    for (const line of env.dashedLines) {
+      if (env.pointNearLine(px, py, line.x1, line.y1, line.x2, line.y2, 10)) {
+        env.removeDashedLine(line.id);
+        return;
+      }
+    }
   });
 
   /* Also handle right-click on overlay (for bridges behind boxes) */
@@ -213,6 +254,14 @@ window.createEventsModule = function (env) {
       if (env.pointNearLine(px, py, x1, y1, x2, y2, 10)) {
         e.preventDefault();
         env.removeBridge(bridge.id);
+        return;
+      }
+    }
+
+    for (const line of env.dashedLines) {
+      if (env.pointNearLine(px, py, line.x1, line.y1, line.x2, line.y2, 10)) {
+        e.preventDefault();
+        env.removeDashedLine(line.id);
         return;
       }
     }
@@ -802,6 +851,7 @@ window.createEventsModule = function (env) {
 
   env.colorBridge.addEventListener('input', () => {
     env.bridgeColor = env.colorBridge.value;
+    env.dashedLines.forEach(line => env.renderDashedLine(line));
     env.bridges.forEach(b => env.renderBridge(b));
     env.two.update();
     env.autoSave();
@@ -828,6 +878,7 @@ window.createEventsModule = function (env) {
     if (isNaN(val) || val < 0.5) { env.bridgeWInput.value = env.bridgeWidth; return; }
     env.bridgeWidth = Math.max(0.5, Math.min(20, val));
     env.bridgeWInput.value = env.bridgeWidth;
+    env.dashedLines.forEach(line => env.renderDashedLine(line));
     env.bridges.forEach(b => env.renderBridge(b));
     env.two.update();
     env.autoSave();
@@ -873,9 +924,29 @@ window.createEventsModule = function (env) {
   /* ------------------------------------------------------------------ */
 
   env.btnAddText.addEventListener('click', () => {
+    clearPendingDashedLine();
+    env.dashedLinePlaceMode = false;
+    env.btnAddDashedLine.classList.remove('active');
+    env.overlay.classList.remove('dashed-line-place-mode');
     env.textPlaceMode = !env.textPlaceMode;
     env.btnAddText.classList.toggle('active', env.textPlaceMode);
     env.overlay.classList.toggle('text-place-mode', env.textPlaceMode);
+  });
+
+  env.btnAddDashedLine.addEventListener('click', () => {
+    clearPendingBridge();
+    env.clearAllSideConnectors();
+    env.textPlaceMode = false;
+    env.btnAddText.classList.remove('active');
+    env.overlay.classList.remove('text-place-mode');
+
+    if (env.dashedLinePlaceMode) {
+      clearPendingDashedLine();
+    }
+
+    env.dashedLinePlaceMode = !env.dashedLinePlaceMode;
+    env.btnAddDashedLine.classList.toggle('active', env.dashedLinePlaceMode);
+    env.overlay.classList.toggle('dashed-line-place-mode', env.dashedLinePlaceMode);
   });
 
   /* ------------------------------------------------------------------ */
@@ -910,10 +981,16 @@ window.createEventsModule = function (env) {
 
     if (e.key === 'Escape') {
       clearPendingBridge();
+      clearPendingDashedLine();
       if (env.textPlaceMode) {
         env.textPlaceMode = false;
         env.btnAddText.classList.remove('active');
         env.overlay.classList.remove('text-place-mode');
+      }
+      if (env.dashedLinePlaceMode) {
+        env.dashedLinePlaceMode = false;
+        env.btnAddDashedLine.classList.remove('active');
+        env.overlay.classList.remove('dashed-line-place-mode');
       }
       env.clearObjectSelection();
     }

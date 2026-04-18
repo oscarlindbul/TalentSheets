@@ -31,6 +31,10 @@
   const DEFAULT_BOX_H = 140;
   const HEADER_HEIGHT = 90;                              // px reserved for header/legend row
   const GRID_TOP      = PAGE_MARGIN + HEADER_HEIGHT;     // y where box grid starts
+  const DEFAULT_LEGEND_WIDTH = 260;
+  const DEFAULT_LEGEND_HEIGHT = 248;
+  const MIN_LEGEND_WIDTH = 180;
+  const MIN_LEGEND_HEIGHT = 150;
 
   let bridgeWidth     = 2.5;                             // bridge line width
 
@@ -48,13 +52,17 @@
 
   let boxes     = [];   // { id, x, y, w, h, name, description, cost, acquired, ranked, font, strokeColor, fillColor }
   let bridges   = [];   // { id, fromId, toId, fromSide, toSide }
+  let dashedLines = []; // { id, x1, y1, x2, y2 }
   let textFields = [];  // { id, x, y, text, font, fontSize, fontWeight, width }
   let nextBoxId = 1;
   let nextBridgeId = 1;
+  let nextDashedLineId = 1;
   let nextTextFieldId = 1;
 
   let bridgePending   = null;  // { boxId, side } — first half of a bridge connection
   let textPlaceMode   = false; // when true, next click on page places a text field
+  let dashedLinePlaceMode = false;
+  let dashedLinePending = null;
   let globalFont      = 'sans-serif';
   let globalFontSize  = 13;
   let globalFontColor = '#222222';
@@ -70,6 +78,7 @@
   let focusedTextFieldId = null; // id of the text field that currently has focus
   let lastFocusedInput   = null; // last textarea/contenteditable that had focus
   let legendPos       = { x: -1, y: 42 }; // -1 means "right-anchored at 50px"
+  let legendSize      = { width: DEFAULT_LEGEND_WIDTH, height: DEFAULT_LEGEND_HEIGHT };
   let selectedBoxIds = new Set();
   let selectedTextFieldIds = new Set();
   let objectClipboard = null;
@@ -90,6 +99,7 @@
   const addTalentMenu = document.getElementById('add-talent-menu');
   const btnTheme      = document.getElementById('btn-toggle-theme');
   const btnAddText    = document.getElementById('btn-add-text');
+  const btnAddDashedLine = document.getElementById('btn-add-dashed-line');
   const btnSave       = document.getElementById('btn-save');
   const btnLoad       = document.getElementById('btn-load');
   const btnExportPdf  = document.getElementById('btn-export-pdf');
@@ -109,6 +119,9 @@
   const btnInsertSymbol  = document.getElementById('btn-insert-symbol');
   const insertSymbolMenu = document.getElementById('insert-symbol-menu');
   const sheetLegend   = document.getElementById('sheet-legend');
+  const legendContent = sheetLegend.querySelector('.legend-content');
+  const legendTitle   = sheetLegend.querySelector('.legend-title');
+  const legendItems   = Array.from(sheetLegend.querySelectorAll('.legend-item'));
   const toolbar       = document.getElementById('toolbar');
 
   /* Title text-field id — the first text field auto-created acts as the title */
@@ -127,10 +140,14 @@
     height: A1_HEIGHT,
   }).appendTo(twoCanvas);
 
+  const dashedLineGroup = two.makeGroup();
+
   // Maps: boxId → Two.Path (the chamfered rect), bridgeId → Two.Line
   const twoBoxShapes    = {};
   const twoBridgeLines  = {};
+  const twoDashedLines  = {};
   let marginShapes      = [];    // Two.js shapes for page-margin dashes
+  let previewDashedLine = null;
 
   /* ------------------------------------------------------------------ */
   /*  Fit page to browser window width                                   */
@@ -524,6 +541,18 @@
     return [box.x + box.w / 2, box.y + box.h / 2];
   }
 
+  function snapDashedLineEnd(startX, startY, endX, endY) {
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const horizontalThreshold = Math.tan(1 * Math.PI / 180);
+
+    if (Math.abs(dx) > 0 && Math.abs(dy / dx) <= horizontalThreshold) {
+      return [endX, startY];
+    }
+
+    return [endX, endY];
+  }
+
   function sideConnectorCenter(box, side) {
     let [cx, cy] = sideAnchor(box, side);
 
@@ -688,6 +717,28 @@
     return bridge;
   }
 
+  function createDashedLine(data) {
+    const dashedLine = Object.assign({
+      id: nextDashedLineId++,
+    }, data);
+
+    if (data && data.id && data.id >= nextDashedLineId) {
+      nextDashedLineId = data.id + 1;
+    }
+
+    dashedLines.push(dashedLine);
+    renderDashedLine(dashedLine);
+    return dashedLine;
+  }
+
+  function removeTwoShape(shape) {
+    if (!shape) return;
+    if (shape.parent && typeof shape.parent.remove === 'function') {
+      shape.parent.remove(shape);
+    }
+    two.remove(shape);
+  }
+
   function renderBridge(bridge) {
     const fromBox = boxes.find(b => b.id === bridge.fromId);
     const toBox   = boxes.find(b => b.id === bridge.toId);
@@ -707,6 +758,52 @@
     line.linewidth = bridgeWidth;
 
     twoBridgeLines[bridge.id] = line;
+    two.update();
+  }
+
+  function renderDashedLine(dashedLine) {
+    if (twoDashedLines[dashedLine.id]) {
+      removeTwoShape(twoDashedLines[dashedLine.id]);
+    }
+
+    const color = darkMode ? lighten(bridgeColor) : bridgeColor;
+    const line = two.makeLine(dashedLine.x1, dashedLine.y1, dashedLine.x2, dashedLine.y2);
+    line.stroke = color;
+    line.linewidth = bridgeWidth;
+    line.dashes = [10, 6];
+    dashedLineGroup.add(line);
+
+    twoDashedLines[dashedLine.id] = line;
+    bridges.forEach(b => renderBridge(b));
+    two.update();
+  }
+
+  function clearDashedLinePreview() {
+    if (!previewDashedLine) return;
+    removeTwoShape(previewDashedLine);
+    previewDashedLine = null;
+    bridges.forEach(b => renderBridge(b));
+    two.update();
+  }
+
+  function updateDashedLinePreview(x1, y1, x2, y2) {
+    const [snappedX2, snappedY2] = snapDashedLineEnd(x1, y1, x2, y2);
+
+    if (previewDashedLine) {
+      removeTwoShape(previewDashedLine);
+      previewDashedLine = null;
+    }
+
+    const color = darkMode ? lighten(bridgeColor) : bridgeColor;
+    const line = two.makeLine(x1, y1, snappedX2, snappedY2);
+    line.stroke = color;
+    line.linewidth = bridgeWidth;
+    line.dashes = [10, 6];
+    line.opacity = 0.8;
+    dashedLineGroup.add(line);
+    previewDashedLine = line;
+
+    bridges.forEach(b => renderBridge(b));
     two.update();
   }
 
@@ -738,6 +835,17 @@
       delete twoBridgeLines[id];
     }
     bridges = bridges.filter(b => b.id !== id);
+    two.update();
+    autoSave();
+  }
+
+  function removeDashedLine(id) {
+    if (twoDashedLines[id]) {
+      removeTwoShape(twoDashedLines[id]);
+      delete twoDashedLines[id];
+    }
+    dashedLines = dashedLines.filter(line => line.id !== id);
+    bridges.forEach(b => renderBridge(b));
     two.update();
     autoSave();
   }
@@ -1267,6 +1375,85 @@
 
   function applyFontToLegend() {
     sheetLegend.style.fontFamily = globalFont;
+    layoutLegendContent();
+  }
+
+  function clampLegendSize(width, height) {
+    return {
+      width: Math.max(MIN_LEGEND_WIDTH, Math.min(A1_WIDTH - PAGE_MARGIN, Math.round(width))),
+      height: Math.max(MIN_LEGEND_HEIGHT, Math.min(pageHeight - PAGE_MARGIN, Math.round(height))),
+    };
+  }
+
+  function applyLegendSize() {
+    legendSize = clampLegendSize(legendSize.width, legendSize.height);
+    sheetLegend.style.width = legendSize.width + 'px';
+    sheetLegend.style.height = legendSize.height + 'px';
+  }
+
+  function setLegendScale(itemFontSize) {
+    const clampedItemSize = Math.max(6, Math.min(72, itemFontSize));
+    const titleSize = Math.max(clampedItemSize + 1, clampedItemSize * 1.16);
+    const markerWidth = Math.max(22, clampedItemSize * 1.8);
+    const swatchWidth = Math.max(14, clampedItemSize * 1.25);
+    const swatchHeight = Math.max(10, clampedItemSize * 0.92);
+    const checkboxSize = Math.max(14, clampedItemSize * 1.05);
+    const rankedSize = Math.max(14, clampedItemSize * 1.2);
+    const lineWidth = Math.max(24, clampedItemSize * 2.1);
+    const lineStroke = Math.max(2, clampedItemSize * 0.16);
+    const gap = Math.max(6, clampedItemSize * 0.45);
+
+    sheetLegend.style.setProperty('--legend-item-size', clampedItemSize + 'px');
+    sheetLegend.style.setProperty('--legend-title-size', titleSize + 'px');
+    sheetLegend.style.setProperty('--legend-marker-width', markerWidth + 'px');
+    sheetLegend.style.setProperty('--legend-swatch-width', swatchWidth + 'px');
+    sheetLegend.style.setProperty('--legend-swatch-height', swatchHeight + 'px');
+    sheetLegend.style.setProperty('--legend-checkbox-size', checkboxSize + 'px');
+    sheetLegend.style.setProperty('--legend-ranked-size', rankedSize + 'px');
+    sheetLegend.style.setProperty('--legend-line-width', lineWidth + 'px');
+    sheetLegend.style.setProperty('--legend-line-stroke', lineStroke + 'px');
+    sheetLegend.style.setProperty('--legend-gap', gap + 'px');
+  }
+
+  function legendContentFits() {
+    return legendContent.scrollHeight <= legendContent.clientHeight + 1 &&
+      legendContent.scrollWidth <= legendContent.clientWidth + 1;
+  }
+
+  function legendContentStrictlyFits() {
+    return legendContent.scrollHeight <= legendContent.clientHeight &&
+      legendContent.scrollWidth <= legendContent.clientWidth;
+  }
+
+  function layoutLegendContent() {
+    applyLegendSize();
+
+    if (!legendContent.clientWidth || !legendContent.clientHeight) {
+      setLegendScale(13);
+      return;
+    }
+
+    let low = 6;
+    let high = Math.min(72, legendContent.clientHeight, legendContent.clientWidth);
+    let best = low;
+
+    while ((high - low) > 0.25) {
+      const mid = (low + high) / 2;
+      setLegendScale(mid);
+      if (legendContentFits()) {
+        best = mid;
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+
+    setLegendScale(best);
+    while (!legendContentStrictlyFits() && best > 6) {
+      best -= 0.25;
+      setLegendScale(best);
+    }
+    sheetLegend.style.setProperty('--legend-handle-size', Math.max(16, Math.min(22, best * 1.2)) + 'px');
   }
 
   /* ------------------------------------------------------------------ */
@@ -1275,6 +1462,7 @@
 
   function positionLegend() {
     const el = sheetLegend;
+    applyLegendSize();
     if (legendPos.x >= 0) {
       el.style.left  = legendPos.x + 'px';
       el.style.right = 'auto';
@@ -1283,6 +1471,7 @@
       el.style.left  = 'auto';
     }
     el.style.top = legendPos.y + 'px';
+    layoutLegendContent();
   }
 
   let legendDragBound = false;
@@ -1292,11 +1481,12 @@
     legendDragBound = true;
 
     const el = sheetLegend;
+    const resizeHandle = el.querySelector('.legend-resize-handle');
     el.style.cursor = 'grab';
 
     let dragging = false, startMX, startMY, startX, startY;
     el.addEventListener('mousedown', (e) => {
-      if (e.target.closest('input')) return;
+      if (e.target.closest('input, .legend-resize-handle')) return;
       dragging = true;
       startMX = e.clientX;
       startMY = e.clientY;
@@ -1327,6 +1517,45 @@
       legendPos.y = parseInt(el.style.top, 10);
       autoSave();
     });
+
+    let resizing = false;
+    let resizeStartMX, resizeStartMY, resizeStartX, resizeStartY, resizeStartW, resizeStartH;
+
+    resizeHandle.addEventListener('mousedown', (e) => {
+      resizing = true;
+      resizeStartMX = e.clientX;
+      resizeStartMY = e.clientY;
+      const rect = el.getBoundingClientRect();
+      const overlayRect = overlay.getBoundingClientRect();
+      resizeStartX = (rect.left - overlayRect.left) / currentScale;
+      resizeStartY = (rect.top - overlayRect.top) / currentScale;
+      resizeStartW = rect.width / currentScale;
+      resizeStartH = rect.height / currentScale;
+      el.style.left = resizeStartX + 'px';
+      el.style.top = resizeStartY + 'px';
+      el.style.right = 'auto';
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!resizing) return;
+      const dx = (e.clientX - resizeStartMX) / currentScale;
+      const dy = (e.clientY - resizeStartMY) / currentScale;
+      legendPos.x = resizeStartX;
+      legendPos.y = resizeStartY;
+      legendSize = clampLegendSize(resizeStartW + dx, resizeStartH + dy);
+      applyLegendSize();
+      layoutLegendContent();
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!resizing) return;
+      resizing = false;
+      legendPos.x = parseInt(el.style.left, 10);
+      legendPos.y = parseInt(el.style.top, 10);
+      autoSave();
+    });
   }
 
   /* ------------------------------------------------------------------ */
@@ -1338,6 +1567,7 @@
     overlay,
     twoBoxShapes,
     twoBridgeLines,
+    twoDashedLines,
     // DOM refs
     fontSelect,
     fontSizeInput,
@@ -1362,10 +1592,14 @@
     set boxes(v)             { boxes = v; },
     get bridges()            { return bridges; },
     set bridges(v)           { bridges = v; },
+    get dashedLines()        { return dashedLines; },
+    set dashedLines(v)       { dashedLines = v; },
     get textFields()         { return textFields; },
     set textFields(v)        { textFields = v; },
     get legendPos()          { return legendPos; },
     set legendPos(v)         { legendPos = v; },
+    get legendSize()         { return legendSize; },
+    set legendSize(v)        { legendSize = clampLegendSize(v.width, v.height); },
     get globalFont()         { return globalFont; },
     set globalFont(v)        { globalFont = v; },
     get globalFontSize()     { return globalFontSize; },
@@ -1392,18 +1626,23 @@
     set bridgeWidth(v)       { bridgeWidth = v; },
     get titleTextFieldId()   { return titleTextFieldId; },
     set titleTextFieldId(v)  { titleTextFieldId = v; },
+    get nextDashedLineId()   { return nextDashedLineId; },
+    set nextDashedLineId(v)  { nextDashedLineId = v; },
     get nextTextFieldId()    { return nextTextFieldId; },
     set nextTextFieldId(v)   { nextTextFieldId = v; },
     get bridgePending()      { return bridgePending; },
     set bridgePending(v)     { bridgePending = v; },
+    clearDashedLinePreview,
     // Functions
     applyTheme,
     createBox,
     createBridge,
+    createDashedLine,
     createTextField,
     expandPage,
     positionLegend,
     applyFontToLegend,
+    layoutLegendContent,
     clearSideConnector,
     clearObjectSelection,
   };
@@ -1444,6 +1683,7 @@
     document.documentElement.dataset.theme = darkMode ? 'dark' : '';
     // Re-render all boxes & bridges with new colors
     boxes.forEach(b => updateBoxShape(b));
+    dashedLines.forEach(line => renderDashedLine(line));
     bridges.forEach(b => renderBridge(b));
     drawPageMargins();
     two.update();
@@ -1464,6 +1704,7 @@
     addTalentMenu,
     btnTheme,
     btnAddText,
+    btnAddDashedLine,
     btnSave,
     btnLoad,
     btnExportPdf,
@@ -1487,6 +1728,7 @@
     // State getters / setters
     get boxes()          { return boxes; },
     get bridges()        { return bridges; },
+    get dashedLines()    { return dashedLines; },
     get currentScale()   { return currentScale; },
     get canvasZoom()     { return canvasZoom; },
     set canvasZoom(v)    { canvasZoom = Math.max(MIN_CANVAS_ZOOM, Math.min(MAX_CANVAS_ZOOM, v)); },
@@ -1525,6 +1767,10 @@
     set bridgeWidth(v)   { bridgeWidth = v; },
     get textPlaceMode()  { return textPlaceMode; },
     set textPlaceMode(v) { textPlaceMode = v; },
+    get dashedLinePlaceMode() { return dashedLinePlaceMode; },
+    set dashedLinePlaceMode(v) { dashedLinePlaceMode = v; },
+    get dashedLinePending() { return dashedLinePending; },
+    set dashedLinePending(v) { dashedLinePending = v; },
     get textFields()     { return textFields; },
     get focusedTextFieldId() { return focusedTextFieldId; },
     isBoxSelected,
@@ -1562,6 +1808,12 @@
     growBoxToFit,
     renderBox,
     createBridge,
+    createDashedLine,
+    renderDashedLine,
+    removeDashedLine,
+    snapDashedLineEnd,
+    updateDashedLinePreview,
+    clearDashedLinePreview,
     renderBridge,
     removeBridge,
     reconcileAllBridges,
