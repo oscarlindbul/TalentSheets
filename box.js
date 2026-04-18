@@ -159,14 +159,42 @@ window.createBoxModule = function (env) {
       acquired:    false,
       ranked:      false,
       font:        env.globalFont,
+      nameFont:    env.globalFont,
+      nameFontSize: env.globalFontSize,
+      nameBold:    false,
+      nameItalic:  false,
+      nameUnderline: false,
+      nameColor:   '#ffffff',
+      descriptionFont: env.globalFont,
+      descriptionFontSize: env.globalFontSize,
+      descriptionBold: false,
+      descriptionItalic: false,
+      descriptionUnderline: false,
+      descriptionColor: null,
       costFont:    env.globalFont,
       costFontSize: 13,
+      costBold:    true,
+      costItalic:  false,
+      costUnderline: false,
+      costColor:   null,
       fontSize:    env.globalFontSize,
       bold:        false,
       italic:      false,
       strokeColor: env.globalStroke,
       fillColor:   env.globalFill,
     }, data);
+
+    box.nameFont = box.nameFont || box.font || env.globalFont;
+    box.nameFontSize = box.nameFontSize || box.fontSize || env.globalFontSize;
+    box.nameBold = box.nameBold != null ? box.nameBold : !!box.bold;
+    box.nameItalic = box.nameItalic != null ? box.nameItalic : !!box.italic;
+    box.descriptionFont = box.descriptionFont || box.font || env.globalFont;
+    box.descriptionFontSize = box.descriptionFontSize || box.fontSize || env.globalFontSize;
+    box.descriptionBold = box.descriptionBold != null ? box.descriptionBold : !!box.bold;
+    box.descriptionItalic = box.descriptionItalic != null ? box.descriptionItalic : !!box.italic;
+    box.costFont = box.costFont || box.font || env.globalFont;
+    box.costFontSize = box.costFontSize || 13;
+    box.costBold = box.costBold != null ? box.costBold : true;
 
     if (data && data.id && data.id >= env.nextBoxId) {
       env.nextBoxId = data.id + 1;
@@ -205,10 +233,38 @@ window.createBoxModule = function (env) {
     el.style.setProperty('--chamfer', clampedChamfer + 'px');
     //el.style.setProperty('--chamfer-perc', env.CHAMFER_PCT*100 + '%');
     el.dataset.boxId = box.id;
+    el.classList.toggle('selected', env.isBoxSelected(box.id));
 
     const costFs = box.costFontSize || 13;
     const triSize = Math.max(45, costFs * 3.2 + 4);   // grow triangle for large text
+    const checkboxSize = Math.max(16, Math.min(30, Math.round(Math.min(box.w, box.h) * 0.11)));
     el.style.setProperty('--tri-size', triSize + 'px');
+    el.style.setProperty('--checkbox-size', checkboxSize + 'px');
+
+    const nameStyle = [
+      `font-family:${box.nameFont || box.font}`,
+      `font-size:${box.nameFontSize || box.fontSize}px`,
+      `font-weight:${box.nameBold ? 'bold' : 'normal'}`,
+      `font-style:${box.nameItalic ? 'italic' : 'normal'}`,
+      `text-decoration:${box.nameUnderline ? 'underline' : 'none'}`,
+      box.nameColor ? `color:${box.nameColor}` : '',
+    ].filter(Boolean).join('; ');
+    const descriptionStyle = [
+      `font-family:${box.descriptionFont || box.font}`,
+      `font-size:${box.descriptionFontSize || box.fontSize}px`,
+      `font-weight:${box.descriptionBold ? 'bold' : 'normal'}`,
+      `font-style:${box.descriptionItalic ? 'italic' : 'normal'}`,
+      `text-decoration:${box.descriptionUnderline ? 'underline' : 'none'}`,
+      box.descriptionColor ? `color:${box.descriptionColor}` : '',
+    ].filter(Boolean).join('; ');
+    const costStyle = [
+      `font-family:${box.costFont || box.font}`,
+      `font-size:${box.costFontSize || 13}px`,
+      `font-weight:${box.costBold ? 'bold' : 'normal'}`,
+      `font-style:${box.costItalic ? 'italic' : 'normal'}`,
+      `text-decoration:${box.costUnderline ? 'underline' : 'none'}`,
+      box.costColor ? `color:${box.costColor}` : '',
+    ].filter(Boolean).join('; ');
 
     el.innerHTML = `
       <button class="box-delete" title="Delete">&times;</button>
@@ -216,10 +272,10 @@ window.createBoxModule = function (env) {
       <input type="file" class="box-bg-input" accept="image/*" style="display:none">
       <div class="box-header">
         <input type="checkbox" class="box-checkbox" ${box.acquired ? 'checked' : ''} title="Acquired">
-        <div class="box-name" contenteditable="true" role="textbox" data-placeholder="Name" style="font-family:${box.font}; font-size:${box.fontSize}px; font-weight:${box.bold ? 'bold' : 'normal'}; font-style:${box.italic ? 'italic' : 'normal'}">${box.name}</div>
+        <div class="box-name" contenteditable="true" role="textbox" data-placeholder="Name" style="${nameStyle}">${box.name}</div>
       </div>
       <div class="box-body">
-        <div class="box-description" contenteditable="true" role="textbox" data-placeholder="Description\u2026" style="font-family:${box.font}; font-size:${box.fontSize}px; font-weight:${box.bold ? 'bold' : 'normal'}; font-style:${box.italic ? 'italic' : 'normal'}">${box.description}</div>
+        <div class="box-description" contenteditable="true" role="textbox" data-placeholder="Description\u2026" style="${descriptionStyle}">${box.description}</div>
         <div class="box-ranked-row">
           <div class="ranked-indicator ${box.ranked ? 'ranked' : ''}" title="Toggle ranked talent">
             <span class="ranked-cell"></span><span class="ranked-cell"></span>
@@ -227,7 +283,7 @@ window.createBoxModule = function (env) {
           </div>
         </div>
       </div>
-      <span class="box-cost" style="font-family:${box.costFont || box.font}; font-size:${box.costFontSize || 13}px">${env.escHtml(box.cost)}</span>
+      <span class="box-cost" style="${costStyle}">${box.cost}</span>
       <div class="box-resize-handle" title="Resize"></div>`;
 
     env.overlay.appendChild(el);
@@ -244,16 +300,24 @@ window.createBoxModule = function (env) {
   function bindBoxEvents(el, box) {
     // --- Focus tracking (used by font/size toolbar to target a single box) ---
     el.addEventListener('focusin', (e) => {
+      const fieldEl = e.target.closest('.box-name, .box-description, .box-cost');
+      if (!fieldEl) return;
+
+      let fieldName = 'description';
+      if (fieldEl.classList.contains('box-name')) fieldName = 'name';
+      else if (fieldEl.classList.contains('box-cost')) fieldName = 'cost';
+
       env.focusedBoxId = box.id;
       env.focusedTextFieldId = null;
-      // Detect if the cost span specifically received focus
-      const isCostFocus = e.target.closest('.box-cost') != null;
-      env.focusedCostBoxId = isCostFocus ? box.id : null;
-      env.onBoxFocus(box, isCostFocus);
+      env.focusedBoxField = fieldName;
+      env.focusedCostBoxId = fieldName === 'cost' ? box.id : null;
+      env.onBoxFocus(box, fieldName);
     });
     el.addEventListener('focusout', (e) => {
       // Only clear if focus leaves this box entirely
       if (!el.contains(e.relatedTarget)) {
+        const toolbar = document.getElementById('toolbar');
+        if (e.relatedTarget && toolbar && toolbar.contains(e.relatedTarget)) return;
         if (env.focusedBoxId === box.id) {
           env.focusedBoxId = null;
           env.onBoxBlur();
@@ -316,7 +380,7 @@ window.createBoxModule = function (env) {
     const costSpan = el.querySelector('.box-cost');
     costSpan.contentEditable = 'true';
     costSpan.addEventListener('input', () => {
-      box.cost = costSpan.textContent;
+      box.cost = costSpan.innerHTML;
       env.autoSave();
     });
 
@@ -329,15 +393,22 @@ window.createBoxModule = function (env) {
 
     // --- Drag ---
     let dragging = false, startMX, startMY, startBX, startBY;
+    let selectionSnapshot = null;
 
     el.addEventListener('mousedown', (e) => {
       // Don't drag when clicking interactive elements, side connectors, or resize handle
       if (e.target.closest('input, [contenteditable], button, .ranked-indicator, .box-cost, .side-connector, .box-resize-handle')) return;
+      if (e.ctrlKey || e.shiftKey) {
+        env.toggleObjectSelection('box', box.id);
+      } else if (!env.isBoxSelected(box.id)) {
+        env.setSingleObjectSelection('box', box.id);
+      }
       dragging = true;
       startMX = e.clientX;
       startMY = e.clientY;
       startBX = box.x;
       startBY = box.y;
+      selectionSnapshot = env.getSelectionSnapshot('box', box.id);
       el.classList.add('dragging');
       e.preventDefault();
     });
@@ -349,32 +420,57 @@ window.createBoxModule = function (env) {
       let newX = Math.max(0, startBX + dx);
       let newY = Math.max(0, startBY + dy);
 
-      // Snap-to-center alignment
-      const dragCx = newX + box.w / 2;
-      const dragCy = newY + box.h / 2;
+      // Snap — center-to-center, edge-to-edge, and edge-to-center
       const SNAP = env.SNAP_THRESHOLD;
       let snapV = null, snapH = null;
 
+      let bestXDist = Infinity, bestNewX = null, bestGuideX = null;
+      let bestYDist = Infinity, bestNewY = null, bestGuideY = null;
+
       for (const other of env.boxes) {
         if (other.id === box.id) continue;
-        const otherCx = other.x + other.w / 2;
-        const otherCy = other.y + other.h / 2;
-        if (snapV == null && Math.abs(dragCx - otherCx) < SNAP) {
-          newX = otherCx - box.w / 2;
-          snapV = otherCx;
+
+        // ---- X-axis candidates: [drag-reference-x, target-x, resulting-newX, guide-x] ----
+        const xCandidates = [
+          [newX,              other.x,              other.x,                         other.x],              // L→L
+          [newX,              other.x + other.w/2,  other.x + other.w/2,             other.x + other.w/2], // L→C
+          [newX,              other.x + other.w,    other.x + other.w,               other.x + other.w],   // L→R
+          [newX + box.w/2,    other.x + other.w/2,  other.x + other.w/2 - box.w/2,  other.x + other.w/2], // C→C
+          [newX + box.w,      other.x,              other.x - box.w,                 other.x],              // R→L
+          [newX + box.w,      other.x + other.w/2,  other.x + other.w/2 - box.w,    other.x + other.w/2], // R→C
+          [newX + box.w,      other.x + other.w,    other.x + other.w - box.w,       other.x + other.w],   // R→R
+        ];
+        for (const [dragPt, target, resultX, guideX] of xCandidates) {
+          const dist = Math.abs(dragPt - target);
+          if (dist < SNAP && dist < bestXDist) {
+            bestXDist = dist;  bestNewX = resultX;  bestGuideX = guideX;
+          }
         }
-        if (snapH == null && Math.abs(dragCy - otherCy) < SNAP) {
-          newY = otherCy - box.h / 2;
-          snapH = otherCy;
+
+        // ---- Y-axis candidates ----
+        const yCandidates = [
+          [newY,              other.y,              other.y,                         other.y],
+          [newY,              other.y + other.h/2,  other.y + other.h/2,             other.y + other.h/2],
+          [newY,              other.y + other.h,    other.y + other.h,               other.y + other.h],
+          [newY + box.h/2,    other.y + other.h/2,  other.y + other.h/2 - box.h/2,  other.y + other.h/2],
+          [newY + box.h,      other.y,              other.y - box.h,                 other.y],
+          [newY + box.h,      other.y + other.h/2,  other.y + other.h/2 - box.h,    other.y + other.h/2],
+          [newY + box.h,      other.y + other.h,    other.y + other.h - box.h,       other.y + other.h],
+        ];
+        for (const [dragPt, target, resultY, guideY] of yCandidates) {
+          const dist = Math.abs(dragPt - target);
+          if (dist < SNAP && dist < bestYDist) {
+            bestYDist = dist;  bestNewY = resultY;  bestGuideY = guideY;
+          }
         }
       }
 
-      box.x = newX;
-      box.y = newY;
-      el.style.left = box.x + 'px';
-      el.style.top  = box.y + 'px';
-      updateBoxShape(box);
-      env.updateBridgesFor(box.id);
+      if (bestNewX !== null) { newX = bestNewX; snapV = bestGuideX; }
+      if (bestNewY !== null) { newY = bestNewY; snapH = bestGuideY; }
+
+      const dxApplied = newX - startBX;
+      const dyApplied = newY - startBY;
+      env.moveSelectionFromSnapshot(selectionSnapshot || env.getSelectionSnapshot('box', box.id), dxApplied, dyApplied);
       env.expandPage();
       env.showSnapGuides(snapV, snapH);
     });
@@ -382,6 +478,7 @@ window.createBoxModule = function (env) {
     document.addEventListener('mouseup', () => {
       if (!dragging) return;
       dragging = false;
+      selectionSnapshot = null;
       el.classList.remove('dragging');
       env.hideSnapGuides();
       env.reconcileAllBridges();
@@ -413,10 +510,11 @@ window.createBoxModule = function (env) {
       const clampedChamfer = Math.min(chamfer(box.w), box.w / 4, box.h / 4);
       el.style.setProperty('--chamfer', clampedChamfer + 'px');
       const costFs = box.costFontSize || 13;
+      const checkboxSize = Math.max(16, Math.min(30, Math.round(Math.min(box.w, box.h) * 0.11)));
       const triSize = Math.max(45, costFs * 3.2 + 4);
       el.style.setProperty('--tri-size', triSize + 'px');
-      updateBoxShape(box);
-      env.updateBridgesFor(box.id);
+      el.style.setProperty('--checkbox-size', checkboxSize + 'px');
+      growBoxToFit(box, el, Math.max(60, resizeStartH + dy));
     });
 
     document.addEventListener('mouseup', () => {
@@ -440,9 +538,11 @@ window.createBoxModule = function (env) {
     const shape  = makeChamferedRect(box.x, box.y, box.w, box.h, chamfer(box.w), stroke, fill);
     const el = document.getElementById('box-' + box.id);
     const clampedChamfer = Math.min(chamfer(box.w), box.w / 4, box.h / 4);
+    const checkboxSize = Math.max(16, Math.min(30, Math.round(Math.min(box.w, box.h) * 0.11)));
     el.style.setProperty('--chamfer', clampedChamfer + 'px');
     el.style.setProperty('--box-fill-color', fill);
     el.style.setProperty('--box-stroke-color', stroke);
+    el.style.setProperty('--checkbox-size', checkboxSize + 'px');
     env.twoBoxShapes[box.id] = shape;
     env.two.update();
     renderBgImage(box);
@@ -452,7 +552,7 @@ window.createBoxModule = function (env) {
   /*  Auto-grow box height to fit description text                       */
   /* ------------------------------------------------------------------ */
 
-  function growBoxToFit(box, el) {
+  function growBoxToFit(box, el, minHeight) {
     const descArea = el.querySelector('.box-description');
 
     // Pull textarea out of flex flow so we can measure true content height.
@@ -475,7 +575,7 @@ window.createBoxModule = function (env) {
     const headerH  = el.querySelector('.box-header').offsetHeight;
     const rankedH  = el.querySelector('.box-ranked-row') ? el.querySelector('.box-ranked-row').offsetHeight : 0;
     const pad      = 30; // total vertical padding
-    const newH     = Math.max(60, headerH + needed + rankedH + pad);
+    const newH     = Math.max(minHeight || 60, headerH + needed + rankedH + pad);
 
     box.h = newH;
     el.style.height = newH + 'px';
@@ -517,6 +617,7 @@ window.createBoxModule = function (env) {
     if (bgEl) bgEl.remove();
 
     env.boxes = env.boxes.filter(b => b.id !== id);
+    env.removeObjectSelection('box', id);
     env.two.update();
     env.reconcileAllBridges();
     env.autoSave();

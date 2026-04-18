@@ -22,6 +22,7 @@ window.createJsonUtilsModule = function (env) {
       meta: {
         font:             env.globalFont,
         fontSize:         env.globalFontSize,
+        fontColor:        env.globalFontColor,
         bold:             env.globalBold,
         italic:           env.globalItalic,
         strokeColor:      env.globalStroke,
@@ -68,6 +69,7 @@ window.createJsonUtilsModule = function (env) {
       if (data.meta) {
         env.globalFont     = data.meta.font        || 'sans-serif';
         env.globalFontSize = data.meta.fontSize     || 13;
+        env.globalFontColor = data.meta.fontColor   || '#222222';
         env.globalBold     = !!data.meta.bold;
         env.globalItalic   = !!data.meta.italic;
         env.globalStroke   = data.meta.strokeColor  || '#444444';
@@ -96,6 +98,7 @@ window.createJsonUtilsModule = function (env) {
 
         env.fontSelect.value        = env.globalFont;
         env.fontSizeInput.value     = env.globalFontSize;
+        env.colorFont.value         = env.globalFontColor;
         env.fontBoldInput.checked   = env.globalBold;
         env.fontItalicInput.checked = env.globalItalic;
         env.colorStroke.value       = env.globalStroke;
@@ -154,6 +157,7 @@ window.createJsonUtilsModule = function (env) {
     env.nextTextFieldId  = 1;
     env.titleTextFieldId = null;
     env.bridgePending    = null;
+    env.clearObjectSelection();
 
     // Remove talent-box and text-field elements (preserve legend)
     env.overlay.querySelectorAll('.talent-box, .text-field, .box-bg-image').forEach(el => el.remove());

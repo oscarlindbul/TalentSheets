@@ -34,6 +34,11 @@
 
   let bridgeWidth     = 2.5;                             // bridge line width
 
+  // Canvas zoom (Ctrl+Scroll)
+  let canvasZoom    = 1.0;
+  const MIN_CANVAS_ZOOM = 0.15;
+  const MAX_CANVAS_ZOOM = 4.0;
+
   // Snap-to-center alignment threshold (px in A1 space)
   const SNAP_THRESHOLD = 15;
 
@@ -52,6 +57,7 @@
   let textPlaceMode   = false; // when true, next click on page places a text field
   let globalFont      = 'sans-serif';
   let globalFontSize  = 13;
+  let globalFontColor = '#222222';
   let globalBold      = false;
   let globalItalic    = false;
   let globalStroke    = '#444444';
@@ -60,9 +66,14 @@
   let darkMode        = false;
   let focusedBoxId    = null;   // id of the box that currently has focus
   let focusedCostBoxId = null;  // id of box whose cost field has focus (or null)
+  let focusedBoxField = null;   // name | description | cost
   let focusedTextFieldId = null; // id of the text field that currently has focus
   let lastFocusedInput   = null; // last textarea/contenteditable that had focus
   let legendPos       = { x: -1, y: 42 }; // -1 means "right-anchored at 50px"
+  let selectedBoxIds = new Set();
+  let selectedTextFieldIds = new Set();
+  let objectClipboard = null;
+  let pasteSequence = 0;
 
   /* ------------------------------------------------------------------ */
   /*  DOM refs                                                           */
@@ -91,14 +102,20 @@
   const boxHInput     = document.getElementById('box-h-input');
   const bridgeWInput  = document.getElementById('bridge-w-input');
   const fontSizeInput = document.getElementById('font-size-input');
-  const fontBoldInput = document.getElementById('font-bold-input');
-  const fontItalicInput = document.getElementById('font-italic-input');
+  const colorFont     = document.getElementById('font-color-input');
+  const fontBoldBtn   = document.getElementById('font-bold-btn');
+  const fontItalicBtn = document.getElementById('font-italic-btn');
+  const fontUnderlineBtn = document.getElementById('font-underline-btn');
   const btnInsertSymbol  = document.getElementById('btn-insert-symbol');
   const insertSymbolMenu = document.getElementById('insert-symbol-menu');
   const sheetLegend   = document.getElementById('sheet-legend');
+  const toolbar       = document.getElementById('toolbar');
 
   /* Title text-field id — the first text field auto-created acts as the title */
   let titleTextFieldId = null;
+  let persistentSelectionRange = null;
+  let persistentSelectionRoot = null;
+  const persistentSelectionHighlightName = 'persistent-selection';
 
   /* ------------------------------------------------------------------ */
   /*  Two.js setup                                                       */
@@ -120,9 +137,8 @@
   /* ------------------------------------------------------------------ */
 
   function fitToWindow() {
-    const WINDOW_W = window.innerWidth;
-    // Scale so A1 page fits within the window; never upscale past 1
-    currentScale = Math.min(1, WINDOW_W / A1_WIDTH);
+    // Scale so A1 page fits naturally; multiply by canvasZoom for canvas-only zoom
+    currentScale = canvasZoom;
 
     const visW = Math.round(A1_WIDTH * currentScale);
     const visH = Math.round(pageHeight * currentScale);
@@ -154,8 +170,8 @@
     pageWrapper.style.height = (visH + 40) + 'px';
     pageWrapper.style.margin = '0 auto';
 
-    // Allow horizontal scroll when objects are larger than viewport
-    pageWrapper.style.overflowX = visW > WINDOW_W ? 'auto' : 'hidden';
+    // Allow horizontal scroll when page is wider than viewport
+    pageWrapper.style.overflowX = visW > window.innerWidth ? 'auto' : 'hidden';
   }
 
   /* ------------------------------------------------------------------ */
@@ -187,13 +203,6 @@
       line.dashes     = [10, 6];
       marginShapes.push(line);
     });
-
-    // Draw a thin separator below header area
-    const sep = two.makeLine(m, GRID_TOP - 8, pw - m, GRID_TOP - 8);
-    sep.stroke    = color;
-    sep.linewidth = 0.8;
-    sep.dashes    = [6, 4];
-    marginShapes.push(sep);
 
     two.update();
   }
@@ -236,6 +245,169 @@
     if (snapGuideH) snapGuideH.style.display = 'none';
   }
 
+  function isBoxSelected(id) {
+    return selectedBoxIds.has(id);
+  }
+
+  function isTextFieldSelected(id) {
+    return selectedTextFieldIds.has(id);
+  }
+
+  function syncObjectSelectionStyles() {
+    boxes.forEach(box => {
+      const el = document.getElementById('box-' + box.id);
+      if (el) el.classList.toggle('selected', selectedBoxIds.has(box.id));
+    });
+    textFields.forEach(tf => {
+      const el = document.getElementById('tf-' + tf.id);
+      if (el) el.classList.toggle('selected', selectedTextFieldIds.has(tf.id));
+    });
+  }
+
+  function clearObjectSelection() {
+    if (selectedBoxIds.size === 0 && selectedTextFieldIds.size === 0) return;
+    selectedBoxIds = new Set();
+    selectedTextFieldIds = new Set();
+    syncObjectSelectionStyles();
+  }
+
+  function setSingleObjectSelection(kind, id) {
+    selectedBoxIds = kind === 'box' ? new Set([id]) : new Set();
+    selectedTextFieldIds = kind === 'textField' ? new Set([id]) : new Set();
+    syncObjectSelectionStyles();
+  }
+
+  function addObjectSelection(kind, id) {
+    if (kind === 'box') selectedBoxIds.add(id);
+    else selectedTextFieldIds.add(id);
+    syncObjectSelectionStyles();
+  }
+
+  function removeObjectSelection(kind, id) {
+    if (kind === 'box') selectedBoxIds.delete(id);
+    else selectedTextFieldIds.delete(id);
+    syncObjectSelectionStyles();
+  }
+
+  function toggleObjectSelection(kind, id) {
+    const setRef = kind === 'box' ? selectedBoxIds : selectedTextFieldIds;
+    if (setRef.has(id)) setRef.delete(id);
+    else setRef.add(id);
+    syncObjectSelectionStyles();
+  }
+
+  function hasObjectSelection() {
+    return selectedBoxIds.size > 0 || selectedTextFieldIds.size > 0;
+  }
+
+  function getSelectionSnapshot(anchorKind, anchorId) {
+    const boxIds = selectedBoxIds.has(anchorId) || anchorKind !== 'box'
+      ? Array.from(selectedBoxIds)
+      : [anchorId];
+    const textIds = selectedTextFieldIds.has(anchorId) || anchorKind !== 'textField'
+      ? Array.from(selectedTextFieldIds)
+      : [anchorId];
+
+    if (anchorKind === 'box' && !boxIds.includes(anchorId)) boxIds.unshift(anchorId);
+    if (anchorKind === 'textField' && !textIds.includes(anchorId)) textIds.unshift(anchorId);
+
+    return {
+      boxes: boxIds.map(id => {
+        const box = boxes.find(item => item.id === id);
+        return box ? { id, x: box.x, y: box.y } : null;
+      }).filter(Boolean),
+      textFields: textIds.map(id => {
+        const tf = textFields.find(item => item.id === id);
+        return tf ? { id, x: tf.x, y: tf.y } : null;
+      }).filter(Boolean),
+    };
+  }
+
+  function moveSelectionFromSnapshot(snapshot, dx, dy) {
+    snapshot.boxes.forEach(item => {
+      const box = boxes.find(candidate => candidate.id === item.id);
+      if (!box) return;
+      box.x = Math.max(0, item.x + dx);
+      box.y = Math.max(0, item.y + dy);
+      const el = document.getElementById('box-' + box.id);
+      if (el) {
+        el.style.left = box.x + 'px';
+        el.style.top = box.y + 'px';
+      }
+      updateBoxShape(box);
+      updateBridgesFor(box.id);
+    });
+
+    snapshot.textFields.forEach(item => {
+      const tf = textFields.find(candidate => candidate.id === item.id);
+      if (!tf) return;
+      tf.x = Math.max(0, item.x + dx);
+      tf.y = Math.max(0, item.y + dy);
+      const el = document.getElementById('tf-' + tf.id);
+      if (el) {
+        el.style.left = tf.x + 'px';
+        el.style.top = tf.y + 'px';
+      }
+    });
+
+    expandPage();
+  }
+
+  function cloneData(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function copyCurrentSelection() {
+    if (!hasObjectSelection()) return false;
+    objectClipboard = {
+      boxes: boxes.filter(box => selectedBoxIds.has(box.id)).map(box => cloneData(box)),
+      textFields: textFields.filter(tf => selectedTextFieldIds.has(tf.id)).map(tf => cloneData(tf)),
+    };
+    pasteSequence = 0;
+    return objectClipboard.boxes.length > 0 || objectClipboard.textFields.length > 0;
+  }
+
+  function pasteClipboard() {
+    if (!objectClipboard) return false;
+    pasteSequence += 1;
+    const offset = 24 * pasteSequence;
+    const newBoxIds = [];
+    const newTextFieldIds = [];
+
+    objectClipboard.boxes.forEach(source => {
+      const data = cloneData(source);
+      delete data.id;
+      data.x += offset;
+      data.y += offset;
+      const created = createBox(data);
+      newBoxIds.push(created.id);
+    });
+
+    objectClipboard.textFields.forEach(source => {
+      const data = cloneData(source);
+      delete data.id;
+      data.x += offset;
+      data.y += offset;
+      const created = createTextField(data);
+      newTextFieldIds.push(created.id);
+    });
+
+    selectedBoxIds = new Set(newBoxIds);
+    selectedTextFieldIds = new Set(newTextFieldIds);
+    syncObjectSelectionStyles();
+    autoSave();
+    return true;
+  }
+
+  function deleteCurrentSelection() {
+    if (!hasObjectSelection()) return false;
+    Array.from(selectedBoxIds).forEach(id => removeBox(id));
+    Array.from(selectedTextFieldIds).forEach(id => removeTextField(id));
+    clearObjectSelection();
+    autoSave();
+    return true;
+  }
+
   /* ------------------------------------------------------------------ */
   /*  Box module initialisation  (box.js)                                */
   /* ------------------------------------------------------------------ */
@@ -263,32 +435,30 @@
     set focusedBoxId(v)  { focusedBoxId = v; },
     get focusedCostBoxId()  { return focusedCostBoxId; },
     set focusedCostBoxId(v) { focusedCostBoxId = v; },
+    get focusedBoxField() { return focusedBoxField; },
+    set focusedBoxField(v) { focusedBoxField = v; },
+    isBoxSelected,
+    removeObjectSelection,
+    addObjectSelection,
+    toggleObjectSelection,
+    setSingleObjectSelection,
+    clearObjectSelection,
+    getSelectionSnapshot,
+    moveSelectionFromSnapshot,
+    syncObjectSelectionStyles,
     set focusedTextFieldId(v) { focusedTextFieldId = v; },
     onBoxFocus(box, isCostFocus) {
-      fontSelect.disabled     = false;
-      fontSizeInput.disabled  = false;
-      fontBoldInput.disabled  = false;
-      fontItalicInput.disabled = false;
-      if (isCostFocus) {
-        fontSelect.value      = box.costFont || box.font || globalFont;
-        fontSizeInput.value   = box.costFontSize || 13;
-      } else {
-        fontSelect.value      = box.font  || globalFont;
-        fontSizeInput.value   = box.fontSize || globalFontSize;
-      }
-      fontBoldInput.checked = !!(box.bold);
-      fontItalicInput.checked = !!(box.italic);
+      const fieldName = typeof isCostFocus === 'string'
+        ? isCostFocus
+        : (isCostFocus ? 'cost' : (focusedBoxField || 'description'));
+      setFontControlsEnabled(true);
+      applyToolbarState(getBoxFieldState(box, fieldName));
     },
     onBoxBlur() {
       focusedCostBoxId = null;
-      fontSelect.disabled     = true;
-      fontSizeInput.disabled  = true;
-      fontBoldInput.disabled  = true;
-      fontItalicInput.disabled = true;
-      fontSelect.value      = globalFont;
-      fontSizeInput.value   = globalFontSize;
-      fontBoldInput.checked = globalBold;
-      fontItalicInput.checked = globalItalic;
+      focusedBoxField = null;
+      if (hasPersistentFormattingTarget()) return;
+      resetToolbarState();
     },
     CHAMFER_PCT:  0.20,
     darken,
@@ -593,6 +763,158 @@
     return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  function cssColorToHex(color) {
+    if (!color) return '#222222';
+    if (color.startsWith('#')) {
+      if (color.length === 4) {
+        return '#' + color.slice(1).split('').map(ch => ch + ch).join('');
+      }
+      return color;
+    }
+    const parts = color.match(/\d+/g);
+    if (!parts || parts.length < 3) return '#222222';
+    return '#' + parts.slice(0, 3).map(part => Number(part).toString(16).padStart(2, '0')).join('');
+  }
+
+  function setFontControlsEnabled(enabled) {
+    fontSelect.disabled = !enabled;
+    fontSizeInput.disabled = !enabled;
+    colorFont.disabled = !enabled;
+    fontBoldBtn.disabled = !enabled;
+    fontItalicBtn.disabled = !enabled;
+    fontUnderlineBtn.disabled = !enabled;
+  }
+
+  function defaultBoxFieldColor(fieldName) {
+    if (fieldName === 'name') return '#ffffff';
+    if (fieldName === 'cost') return darkMode ? '#000000' : '#ffffff';
+    return darkMode ? '#dddddd' : '#222222';
+  }
+
+  function getTextFieldState(tf) {
+    return {
+      font: tf.font || globalFont,
+      fontSize: tf.fontSize || globalFontSize,
+      bold: !!tf.bold,
+      italic: !!tf.italic,
+      underline: !!tf.underline,
+      color: tf.fontColor || (darkMode ? '#dddddd' : '#222222'),
+    };
+  }
+
+  function getBoxFieldState(box, fieldName) {
+    if (fieldName === 'name') {
+      return {
+        font: box.nameFont || box.font || globalFont,
+        fontSize: box.nameFontSize || box.fontSize || globalFontSize,
+        bold: box.nameBold != null ? !!box.nameBold : !!box.bold,
+        italic: box.nameItalic != null ? !!box.nameItalic : !!box.italic,
+        underline: !!box.nameUnderline,
+        color: box.nameColor || defaultBoxFieldColor('name'),
+      };
+    }
+    if (fieldName === 'cost') {
+      return {
+        font: box.costFont || box.font || globalFont,
+        fontSize: box.costFontSize || 13,
+        bold: box.costBold != null ? !!box.costBold : true,
+        italic: !!box.costItalic,
+        underline: !!box.costUnderline,
+        color: box.costColor || defaultBoxFieldColor('cost'),
+      };
+    }
+    return {
+      font: box.descriptionFont || box.font || globalFont,
+      fontSize: box.descriptionFontSize || box.fontSize || globalFontSize,
+      bold: box.descriptionBold != null ? !!box.descriptionBold : !!box.bold,
+      italic: box.descriptionItalic != null ? !!box.descriptionItalic : !!box.italic,
+      underline: !!box.descriptionUnderline,
+      color: box.descriptionColor || defaultBoxFieldColor('description'),
+    };
+  }
+
+  function applyToolbarState(state) {
+    if (!state) return;
+    if (state.font && fontSelect.querySelector(`option[value="${state.font}"]`)) {
+      fontSelect.value = state.font;
+    }
+    if (state.fontSize != null && !Number.isNaN(Number(state.fontSize))) {
+      fontSizeInput.value = Math.round(Number(state.fontSize));
+    }
+    if (state.color) {
+      colorFont.value = cssColorToHex(state.color);
+    }
+    fontBoldBtn.classList.toggle('active', !!state.bold);
+    fontItalicBtn.classList.toggle('active', !!state.italic);
+    fontUnderlineBtn.classList.toggle('active', !!state.underline);
+  }
+
+  function resetToolbarState() {
+    setFontControlsEnabled(false);
+    fontSelect.value = globalFont;
+    fontSizeInput.value = globalFontSize;
+    colorFont.value = cssColorToHex(globalFontColor);
+    fontBoldBtn.classList.toggle('active', globalBold);
+    fontItalicBtn.classList.toggle('active', globalItalic);
+    fontUnderlineBtn.classList.remove('active');
+  }
+
+  function hasPersistentFormattingTarget() {
+    return !!(persistentSelectionRoot && persistentSelectionRoot.isConnected);
+  }
+
+  function applyPersistentSelectionHighlight() {
+    if (!(window.CSS && CSS.highlights)) return;
+    CSS.highlights.delete(persistentSelectionHighlightName);
+    if (!persistentSelectionRange || !persistentSelectionRoot || !persistentSelectionRoot.isConnected) return;
+    CSS.highlights.set(
+      persistentSelectionHighlightName,
+      new Highlight(persistentSelectionRange.cloneRange())
+    );
+  }
+
+  function storePersistentSelection(range, root) {
+    if (!range || range.collapsed || !root || !root.isConnected) return;
+    persistentSelectionRange = range.cloneRange();
+    persistentSelectionRoot = root;
+    applyPersistentSelectionHighlight();
+  }
+
+  function getEditableSelectionRoot(node) {
+    let current = node && node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    while (current) {
+      if (
+        current.classList && (
+          current.classList.contains('tf-input') ||
+          current.classList.contains('box-name') ||
+          current.classList.contains('box-description') ||
+          current.classList.contains('box-cost')
+        )
+      ) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+    return null;
+  }
+
+  function clearPersistentSelection() {
+    persistentSelectionRange = null;
+    persistentSelectionRoot = null;
+    if (window.CSS && CSS.highlights) {
+      CSS.highlights.delete(persistentSelectionHighlightName);
+    }
+  }
+
+  function capturePersistentSelection() {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    const root = getEditableSelectionRoot(range.commonAncestorContainer) || getEditableSelectionRoot(sel.anchorNode);
+    if (!root) return;
+    storePersistentSelection(range, root);
+  }
+
   /* ------------------------------------------------------------------ */
   /*  Text field management                                              */
   /* ------------------------------------------------------------------ */
@@ -605,9 +927,11 @@
       text:        'Text',
       font:        globalFont,
       fontSize:    32,
+      fontColor:   globalFontColor,
       fontWeight:  'bold',
       bold:        true,
       italic:      false,
+      underline:   false,
       width:       600,
     }, data);
 
@@ -631,14 +955,17 @@
     el.style.top      = tf.y + 'px';
     el.style.width    = 'auto';
     el.dataset.tfId   = tf.id;
+    el.classList.toggle('selected', isTextFieldSelected(tf.id));
 
     const weight = tf.bold ? 'bold' : (tf.fontWeight === 'bold' ? 'bold' : 'normal');
     const fStyle = tf.italic ? 'italic' : 'normal';
+    const tDeco = tf.underline ? 'underline' : 'none';
+    const tColor = tf.fontColor ? `color:${tf.fontColor};` : '';
     el.innerHTML = `
       <span class="tf-drag" title="Drag to move">⋮</span>
       <button class="tf-delete" title="Delete">&times;</button>
       <div class="tf-input" contenteditable="true" role="textbox" data-placeholder="Text…"
-        style="font-family:${tf.font}; font-size:${tf.fontSize}px; font-weight:${weight}; font-style:${fStyle}"
+        style="font-family:${tf.font}; font-size:${tf.fontSize}px; font-weight:${weight}; font-style:${fStyle}; text-decoration:${tDeco}; ${tColor}"
       >${tf.text}</div>`;
 
     overlay.appendChild(el);
@@ -675,27 +1002,19 @@
     el.addEventListener('focusin', () => {
       focusedTextFieldId = tf.id;
       focusedBoxId = null;
-      fontSelect.disabled     = false;
-      fontSizeInput.disabled  = false;
-      fontBoldInput.disabled  = false;
-      fontItalicInput.disabled = false;
-      fontSelect.value      = tf.font  || globalFont;
-      fontSizeInput.value   = tf.fontSize || globalFontSize;
-      fontBoldInput.checked = !!(tf.bold);
-      fontItalicInput.checked = !!(tf.italic);
+      setFontControlsEnabled(true);
+      applyToolbarState(getTextFieldState(tf));
     });
     el.addEventListener('focusout', (e) => {
       if (!el.contains(e.relatedTarget)) {
+        // Keep toolbar active when focus moves to a toolbar control (for formatting)
+        const toolbar = document.getElementById('toolbar');
+        if (e.relatedTarget && toolbar && toolbar.contains(e.relatedTarget)) return;
         if (focusedTextFieldId === tf.id) {
           focusedTextFieldId = null;
-          fontSelect.disabled     = true;
-          fontSizeInput.disabled  = true;
-          fontBoldInput.disabled  = true;
-          fontItalicInput.disabled = true;
-          fontSelect.value      = globalFont;
-          fontSizeInput.value   = globalFontSize;
-          fontBoldInput.checked = globalBold;
-          fontItalicInput.checked = globalItalic;
+          if (!hasPersistentFormattingTarget()) {
+            resetToolbarState();
+          }
         }
       }
     });
@@ -703,12 +1022,43 @@
     // Drag — initiated from the drag handle only
     const dragHandle = el.querySelector('.tf-drag');
     let dragging = false, startMX, startMY, startX, startY;
+    let selectionSnapshot = null;
+
+    function isNearTextFieldBorder(target, event) {
+      if (target.closest('.tf-delete, .tf-drag')) return true;
+      const inputRect = input.getBoundingClientRect();
+      const pad = 10;
+      return (
+        event.clientX <= inputRect.left + pad ||
+        event.clientX >= inputRect.right - pad ||
+        event.clientY <= inputRect.top + pad ||
+        event.clientY >= inputRect.bottom - pad
+      );
+    }
+
+    el.addEventListener('mousedown', (e) => {
+      if (!isNearTextFieldBorder(e.target, e)) return;
+      if (e.ctrlKey || e.shiftKey) {
+        toggleObjectSelection('textField', tf.id);
+      } else if (!isTextFieldSelected(tf.id)) {
+        setSingleObjectSelection('textField', tf.id);
+      }
+      e.stopPropagation();
+    });
+
     dragHandle.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      if (e.ctrlKey || e.shiftKey) {
+        toggleObjectSelection('textField', tf.id);
+      } else if (!isTextFieldSelected(tf.id)) {
+        setSingleObjectSelection('textField', tf.id);
+      }
       dragging = true;
       startMX = e.clientX;
       startMY = e.clientY;
       startX = tf.x;
       startY = tf.y;
+      selectionSnapshot = getSelectionSnapshot('textField', tf.id);
       el.classList.add('dragging');
       e.preventDefault();
     });
@@ -716,14 +1066,12 @@
       if (!dragging) return;
       const dx = (e.clientX - startMX) / currentScale;
       const dy = (e.clientY - startMY) / currentScale;
-      tf.x = Math.max(0, startX + dx);
-      tf.y = Math.max(0, startY + dy);
-      el.style.left = tf.x + 'px';
-      el.style.top  = tf.y + 'px';
+      moveSelectionFromSnapshot(selectionSnapshot || getSelectionSnapshot('textField', tf.id), dx, dy);
     });
     document.addEventListener('mouseup', () => {
       if (!dragging) return;
       dragging = false;
+      selectionSnapshot = null;
       el.classList.remove('dragging');
       autoSave();
     });
@@ -733,6 +1081,7 @@
     const el = document.getElementById('tf-' + id);
     if (el) el.remove();
     textFields = textFields.filter(t => t.id !== id);
+    removeObjectSelection('textField', id);
     autoSave();
   }
 
@@ -745,6 +1094,13 @@
     if (t.isContentEditable) {
       lastFocusedInput = t;
       btnInsertSymbol.disabled = false;
+    }
+  });
+
+  document.addEventListener('focusin', (e) => {
+    const root = getEditableSelectionRoot(e.target);
+    if (root && persistentSelectionRoot && root !== persistentSelectionRoot) {
+      clearPersistentSelection();
     }
   });
 
@@ -811,6 +1167,36 @@
       el.dispatchEvent(new Event('input', { bubbles: true }));
     }
   }
+
+  /* ------------------------------------------------------------------ */
+  /*  Selection tracking — update toolbar when caret in text field      */
+  /* ------------------------------------------------------------------ */
+
+  document.addEventListener('selectionchange', () => {
+    capturePersistentSelection();
+
+    const sel = window.getSelection();
+    if (!sel || !sel.anchorNode) return;
+    const root = getEditableSelectionRoot(sel.anchorNode);
+    if (!root) return;
+
+    const anchor = sel.anchorNode;
+    const parent = anchor.nodeType === Node.TEXT_NODE ? anchor.parentElement : anchor;
+    if (parent) {
+      const computed = window.getComputedStyle(parent);
+      const px = parseFloat(computed.fontSize);
+      const weightNum = parseInt(computed.fontWeight, 10);
+      setFontControlsEnabled(true);
+      applyToolbarState({
+        font: computed.fontFamily.replace(/^["']|["']$/g, '').split(',')[0].trim(),
+        fontSize: !isNaN(px) ? px : globalFontSize,
+        bold: document.queryCommandState('bold') || (!Number.isNaN(weightNum) && weightNum >= 600) || computed.fontWeight === 'bold',
+        italic: document.queryCommandState('italic') || computed.fontStyle === 'italic',
+        underline: document.queryCommandState('underline') || computed.textDecorationLine.includes('underline'),
+        color: computed.color,
+      });
+    }
+  });
 
   /* ------------------------------------------------------------------ */
   /*  Apply font to legend                                               */
@@ -892,8 +1278,16 @@
     // DOM refs
     fontSelect,
     fontSizeInput,
-    fontBoldInput,
-    fontItalicInput,
+    colorFont,
+    // Proxy objects so json-utils.js can do fontBoldInput.checked = true
+    fontBoldInput: {
+      get checked() { return fontBoldBtn.classList.contains('active'); },
+      set checked(v) { fontBoldBtn.classList.toggle('active', !!v); },
+    },
+    fontItalicInput: {
+      get checked() { return fontItalicBtn.classList.contains('active'); },
+      set checked(v) { fontItalicBtn.classList.toggle('active', !!v); },
+    },
     colorStroke,
     colorFill,
     colorBridge,
@@ -913,6 +1307,8 @@
     set globalFont(v)        { globalFont = v; },
     get globalFontSize()     { return globalFontSize; },
     set globalFontSize(v)    { globalFontSize = v; },
+    get globalFontColor()    { return globalFontColor; },
+    set globalFontColor(v)   { globalFontColor = v; },
     get globalBold()         { return globalBold; },
     set globalBold(v)        { globalBold = v; },
     get globalItalic()       { return globalItalic; },
@@ -946,6 +1342,7 @@
     positionLegend,
     applyFontToLegend,
     clearSideConnector,
+    clearObjectSelection,
   };
 
   const { buildJSON, downloadJSON, loadJSON, clearAll, autoSave, autoLoad } =
@@ -997,6 +1394,7 @@
     two,
     overlay,
     pageContainer,
+    pageWrapper,
     twoCanvas,
     // DOM refs
     btnAddBox,
@@ -1009,8 +1407,10 @@
     fileInput,
     fontSelect,
     fontSizeInput,
-    fontBoldInput,
-    fontItalicInput,
+    colorFont,
+    fontBoldBtn,
+    fontItalicBtn,
+    fontUnderlineBtn,
     btnInsertSymbol,
     insertSymbolMenu,
     insertAtCaret,
@@ -1025,18 +1425,23 @@
     get boxes()          { return boxes; },
     get bridges()        { return bridges; },
     get currentScale()   { return currentScale; },
+    get canvasZoom()     { return canvasZoom; },
+    set canvasZoom(v)    { canvasZoom = Math.max(MIN_CANVAS_ZOOM, Math.min(MAX_CANVAS_ZOOM, v)); },
     get darkMode()       { return darkMode; },
     set darkMode(v)      { darkMode = v; },
     get globalFont()     { return globalFont; },
     set globalFont(v)    { globalFont = v; },
     get globalFontSize() { return globalFontSize; },
     set globalFontSize(v){ globalFontSize = v; },
+    get globalFontColor() { return globalFontColor; },
+    set globalFontColor(v){ globalFontColor = v; },
     get globalBold()     { return globalBold; },
     set globalBold(v)    { globalBold = v; },
     get globalItalic()   { return globalItalic; },
     set globalItalic(v)  { globalItalic = v; },
     get focusedBoxId()   { return focusedBoxId; },
     get focusedCostBoxId() { return focusedCostBoxId; },
+    get focusedBoxField() { return focusedBoxField; },
     get globalStroke()   { return globalStroke; },
     set globalStroke(v)  { globalStroke = v; },
     get globalFill()     { return globalFill; },
@@ -1059,12 +1464,28 @@
     set textPlaceMode(v) { textPlaceMode = v; },
     get textFields()     { return textFields; },
     get focusedTextFieldId() { return focusedTextFieldId; },
+    isBoxSelected,
+    isTextFieldSelected,
+    hasObjectSelection,
+    removeObjectSelection,
+    addObjectSelection,
+    toggleObjectSelection,
+    setSingleObjectSelection,
+    clearObjectSelection,
+    getSelectionSnapshot,
+    moveSelectionFromSnapshot,
+    copyCurrentSelection,
+    pasteClipboard,
+    deleteCurrentSelection,
+    syncObjectSelectionStyles,
     DEFAULT_BOX_H,
     // Functions
     fitToWindow,
     createTextField,
     renderTextField,
     removeTextField,
+    storePersistentSelection,
+    clearPersistentSelection,
     applyFontToLegend,
     autoSave,
     expandPage,

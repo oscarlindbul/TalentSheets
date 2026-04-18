@@ -44,21 +44,24 @@
     <label>Bridge:
       <input type="number" id="bridge-w-input" value="2.5" min="0.5" max="20" step="0.5" title="Bridge line width">
     </label>
-    <label id="font-label">Font:
-      <select id="font-select" disabled>
-        <option value="serif">Serif</option>
-        <option value="sans-serif" selected>Sans-Serif</option>
-        <option value="monospace">Monospace</option>
-        <option value="Georgia">Georgia</option>
-        <option value="Palatino">Palatino</option>
-        <option value="Garamond">Garamond</option>
-      </select>
-    </label>
-    <label>Size:
+    <div id="font-controls-group">
+      <span class="font-group-label">Font</span>
+      <label id="font-label">
+        <select id="font-select" disabled>
+          <option value="serif">Serif</option>
+          <option value="sans-serif" selected>Sans-Serif</option>
+          <option value="monospace">Monospace</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Palatino">Palatino</option>
+          <option value="Garamond">Garamond</option>
+        </select>
+      </label>
       <input type="number" id="font-size-input" value="13" min="6" max="72" step="1" title="Font size (px)" disabled>
-    </label>
-    <label title="Bold"><input type="checkbox" id="font-bold-input" disabled> <b>B</b></label>
-    <label title="Italic"><input type="checkbox" id="font-italic-input" disabled> <i>I</i></label>
+      <input type="color" id="font-color-input" value="#222222" title="Font color" disabled>
+      <button id="font-bold-btn" class="font-fmt-btn" disabled title="Bold"><b>B</b></button>
+      <button id="font-italic-btn" class="font-fmt-btn" disabled title="Italic"><i>I</i></button>
+      <button id="font-underline-btn" class="font-fmt-btn" disabled title="Underline"><u>U</u></button>
+    </div>
     <label id="color-label">Box Stroke:
       <input type="color" id="color-stroke" value="#444444">
     </label>
