@@ -189,8 +189,8 @@ window.createEventsModule = function (env) {
       const fromBox = env.boxes.find(b => b.id === bridge.fromId);
       const toBox   = env.boxes.find(b => b.id === bridge.toId);
       if (!fromBox || !toBox) continue;
-      const [x1, y1] = env.sideAnchor(fromBox, bridge.fromSide || 'right');
-      const [x2, y2] = env.sideAnchor(toBox,   bridge.toSide   || 'left');
+      const [x1, y1] = env.bridgeAnchor(fromBox, bridge.fromSide || 'right');
+      const [x2, y2] = env.bridgeAnchor(toBox,   bridge.toSide   || 'left');
       if (env.pointNearLine(px, py, x1, y1, x2, y2, 10)) {
         env.removeBridge(bridge.id);
         return;
@@ -208,8 +208,8 @@ window.createEventsModule = function (env) {
       const fromBox = env.boxes.find(b => b.id === bridge.fromId);
       const toBox   = env.boxes.find(b => b.id === bridge.toId);
       if (!fromBox || !toBox) continue;
-      const [x1, y1] = env.sideAnchor(fromBox, bridge.fromSide || 'right');
-      const [x2, y2] = env.sideAnchor(toBox,   bridge.toSide   || 'left');
+      const [x1, y1] = env.bridgeAnchor(fromBox, bridge.fromSide || 'right');
+      const [x2, y2] = env.bridgeAnchor(toBox,   bridge.toSide   || 'left');
       if (env.pointNearLine(px, py, x1, y1, x2, y2, 10)) {
         e.preventDefault();
         env.removeBridge(bridge.id);

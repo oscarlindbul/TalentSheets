@@ -507,6 +507,23 @@
     return [box.x + box.w / 2, box.y + box.h / 2];
   }
 
+  function bridgeAnchor(box, side) {
+    const inset = Math.max(4, bridgeWidth + 2);
+
+    switch (side) {
+      case 'top':
+        return [box.x + box.w / 2, box.y + inset];
+      case 'bottom':
+        return [box.x + box.w / 2, box.y + box.h - inset];
+      case 'left':
+        return [box.x + inset, box.y + box.h / 2];
+      case 'right':
+        return [box.x + box.w - inset, box.y + box.h / 2];
+    }
+
+    return [box.x + box.w / 2, box.y + box.h / 2];
+  }
+
   function sideConnectorCenter(box, side) {
     let [cx, cy] = sideAnchor(box, side);
 
@@ -680,8 +697,8 @@
       two.remove(twoBridgeLines[bridge.id]);
     }
 
-    const [x1, y1] = sideAnchor(fromBox, bridge.fromSide || 'right');
-    const [x2, y2] = sideAnchor(toBox,   bridge.toSide   || 'left');
+    const [x1, y1] = bridgeAnchor(fromBox, bridge.fromSide || 'right');
+    const [x2, y2] = bridgeAnchor(toBox,   bridge.toSide   || 'left');
 
     const color = darkMode ? lighten(bridgeColor) : bridgeColor;
 
@@ -1549,6 +1566,7 @@
     removeBridge,
     reconcileAllBridges,
     drawPageMargins,
+    bridgeAnchor,
     detectSideExtended,
     detectSideConnectorHit,
     clearAllSideConnectors,
