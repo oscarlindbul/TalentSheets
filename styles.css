@@ -612,8 +612,8 @@ body.pdf-exporting .die-diamond {
   position: absolute;
   bottom: 0;
   right: 0;
-  width: var(--tri-size, 45px);
-  height: var(--tri-size, 45px);
+  width: var(--tri-size, 56px);
+  height: var(--tri-size, 56px);
   background: #000;
   clip-path: polygon(100% 0, 100% 100%, 0 100%);
   z-index: 2;
@@ -629,8 +629,8 @@ body.pdf-exporting .die-diamond {
   position: absolute;
   bottom: 0;
   right: 0;
-  width: var(--tri-size, 45px);
-  height: var(--tri-size, 45px);
+  width: var(--tri-size, 56px);
+  height: var(--tri-size, 56px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -643,7 +643,7 @@ body.pdf-exporting .die-diamond {
   text-align: center;
   z-index: 3;
   line-height: 1;
-  transform: translate(calc(var(--tri-size, 45px) / 6), calc(var(--tri-size, 45px) / 6)) rotate(-45deg);
+  transform: translate(calc(var(--tri-size, 56px) / 6), calc(var(--tri-size, 56px) / 6)) rotate(-45deg);
   transform-origin: center center;
 }
 

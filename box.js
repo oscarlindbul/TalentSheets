@@ -152,6 +152,7 @@ window.createBoxModule = function (env) {
       y:           150,
       w:           env.boxW,
       h:           env.boxH,
+      minHeight:   env.boxH,
       talentType:  'active',
       name:        'Talent',
       description: '',
@@ -188,6 +189,7 @@ window.createBoxModule = function (env) {
     box.nameFontSize = box.nameFontSize || box.fontSize || env.globalFontSize;
     box.nameBold = box.nameBold != null ? box.nameBold : !!box.bold;
     box.nameItalic = box.nameItalic != null ? box.nameItalic : !!box.italic;
+    box.minHeight = Math.max(60, box.minHeight || box.h || env.boxH);
     box.descriptionFont = box.descriptionFont || box.font || env.globalFont;
     box.descriptionFontSize = box.descriptionFontSize || box.fontSize || env.globalFontSize;
     box.descriptionBold = box.descriptionBold != null ? box.descriptionBold : !!box.bold;
@@ -236,7 +238,7 @@ window.createBoxModule = function (env) {
     el.classList.toggle('selected', env.isBoxSelected(box.id));
 
     const costFs = box.costFontSize || 13;
-    const triSize = Math.max(45, costFs * 3.2 + 4);   // grow triangle for large text
+    const triSize = Math.max(56, costFs * 3.8 + 8);   // give the corner cost area more room
     const checkboxSize = Math.max(16, Math.min(30, Math.round(Math.min(box.w, box.h) * 0.11)));
     el.style.setProperty('--tri-size', triSize + 'px');
     el.style.setProperty('--checkbox-size', checkboxSize + 'px');
@@ -516,17 +518,18 @@ window.createBoxModule = function (env) {
       const dx = (e.clientX - resizeStartMX) / env.currentScale;
       const dy = (e.clientY - resizeStartMY) / env.currentScale;
       box.w = Math.max(80, resizeStartW + dx);
-      box.h = Math.max(60, resizeStartH + dy);
+      box.minHeight = Math.max(60, resizeStartH + dy);
+      box.h = box.minHeight;
       el.style.width  = box.w + 'px';
       el.style.height = box.h + 'px';
       const clampedChamfer = Math.min(chamfer(box.w), box.w / 4, box.h / 4);
       el.style.setProperty('--chamfer', clampedChamfer + 'px');
       const costFs = box.costFontSize || 13;
       const checkboxSize = Math.max(16, Math.min(30, Math.round(Math.min(box.w, box.h) * 0.11)));
-      const triSize = Math.max(45, costFs * 3.2 + 4);
+      const triSize = Math.max(56, costFs * 3.8 + 8);
       el.style.setProperty('--tri-size', triSize + 'px');
       el.style.setProperty('--checkbox-size', checkboxSize + 'px');
-      growBoxToFit(box, el, Math.max(60, resizeStartH + dy));
+      growBoxToFit(box, el, box.minHeight);
     });
 
     document.addEventListener('mouseup', () => {
@@ -587,7 +590,8 @@ window.createBoxModule = function (env) {
     const headerH  = el.querySelector('.box-header').offsetHeight;
     const rankedH  = el.querySelector('.box-ranked-row') ? el.querySelector('.box-ranked-row').offsetHeight : 0;
     const pad      = 30; // total vertical padding
-    const newH     = Math.max(minHeight || 60, headerH + needed + rankedH + pad);
+    const floorH   = Math.max(60, minHeight != null ? minHeight : (box.minHeight || 60));
+    const newH     = Math.max(floorH, headerH + needed + rankedH + pad);
 
     box.h = newH;
     el.style.height = newH + 'px';

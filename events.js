@@ -527,11 +527,11 @@ window.createEventsModule = function (env) {
 
     if (context.field === 'cost') {
       const costFs = context.box.costFontSize || 13;
-      const triSize = Math.max(45, costFs * 3.2 + 4);
+      const triSize = Math.max(56, costFs * 3.8 + 8);
       context.boxEl.style.setProperty('--tri-size', triSize + 'px');
     }
 
-    env.growBoxToFit(context.box, context.boxEl, context.box.h);
+    env.growBoxToFit(context.box, context.boxEl);
     env.autoSave();
   }
 
@@ -677,6 +677,26 @@ window.createEventsModule = function (env) {
 
     const range = selection.getRangeAt(0);
     if (range.collapsed) return false;
+
+    const offsets = getRangeOffsets(context.root, range);
+    const fullSelection = offsets.start === 0 && offsets.end === context.root.textContent.length;
+
+    if (fullSelection) {
+      const fragment = range.extractContents();
+      normalizeFragmentForStyles(fragment, styleMap);
+      context.root.replaceChildren(fragment);
+      Object.entries(styleMap).forEach(([key, value]) => {
+        context.root.style[key] = value;
+      });
+
+      const newRange = document.createRange();
+      newRange.selectNodeContents(context.root);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+      updateSavedSelection(newRange, context.root);
+      persistEditableContext(context, true);
+      return true;
+    }
 
     const fragment = range.extractContents();
     normalizeFragmentForStyles(fragment, styleMap);

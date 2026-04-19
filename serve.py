@@ -22,7 +22,7 @@ def main():
     parser.add_argument(
         "--port", "-p",
         type=int,
-        default=8001,
+        default=8000,
         help="Port to listen on (default: 8001)",
     )
     parser.add_argument(
