@@ -367,7 +367,10 @@ window.createBoxModule = function (env) {
     nameInput.addEventListener('input', () => {
       box.name = nameInput.innerHTML;
       growBoxToFit(box, el);
-      env.autoSave();
+      env.scheduleTextAutoSave();
+    });
+    nameInput.addEventListener('blur', () => {
+      env.flushScheduledAutoSave();
     });
 
     // --- Description (auto-grow) ---
@@ -375,7 +378,10 @@ window.createBoxModule = function (env) {
     descArea.addEventListener('input', () => {
       box.description = descArea.innerHTML;
       growBoxToFit(box, el);
-      env.autoSave();
+      env.scheduleTextAutoSave();
+    });
+    descArea.addEventListener('blur', () => {
+      env.flushScheduledAutoSave();
     });
 
     // --- Cost (contenteditable span) ---
@@ -383,7 +389,10 @@ window.createBoxModule = function (env) {
     costSpan.contentEditable = 'true';
     costSpan.addEventListener('input', () => {
       box.cost = costSpan.innerHTML;
-      env.autoSave();
+      env.scheduleTextAutoSave();
+    });
+    costSpan.addEventListener('blur', () => {
+      env.flushScheduledAutoSave();
     });
 
     // --- Ranked toggle ---

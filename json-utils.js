@@ -13,6 +13,10 @@
 window.createJsonUtilsModule = function (env) {
   'use strict';
 
+  const TEXT_AUTOSAVE_INTERVAL_MS = 60 * 1000;
+  let pendingTextAutoSave = false;
+  let textAutoSaveTimer = null;
+
   /* ------------------------------------------------------------------ */
   /*  Build JSON string                                                  */
   /* ------------------------------------------------------------------ */
@@ -226,6 +230,12 @@ window.createJsonUtilsModule = function (env) {
   /* ------------------------------------------------------------------ */
 
   function autoSave() {
+    pendingTextAutoSave = false;
+    if (textAutoSaveTimer) {
+      clearTimeout(textAutoSaveTimer);
+      textAutoSaveTimer = null;
+    }
+
     const json = buildJSON();
     // Save to IndexedDB (handles large image data)
     idbSet(IDB_KEY, json).catch(() => {});
@@ -246,6 +256,22 @@ window.createJsonUtilsModule = function (env) {
         localStorage.setItem('talentSheet', JSON.stringify(data));
       } catch (_2) { /* private mode or still too large */ }
     }
+  }
+
+  function scheduleTextAutoSave(delayMs) {
+    pendingTextAutoSave = true;
+    if (textAutoSaveTimer) return;
+
+    textAutoSaveTimer = setTimeout(() => {
+      textAutoSaveTimer = null;
+      if (!pendingTextAutoSave) return;
+      autoSave();
+    }, typeof delayMs === 'number' ? delayMs : TEXT_AUTOSAVE_INTERVAL_MS);
+  }
+
+  function flushScheduledAutoSave() {
+    if (!pendingTextAutoSave) return;
+    autoSave();
   }
 
   function autoLoad() {
@@ -279,5 +305,20 @@ window.createJsonUtilsModule = function (env) {
     return loaded;
   }
 
-  return { buildJSON, downloadJSON, loadJSON, clearAll, autoSave, autoLoad };
+  window.addEventListener('beforeunload', flushScheduledAutoSave);
+  window.addEventListener('pagehide', flushScheduledAutoSave);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushScheduledAutoSave();
+  });
+
+  return {
+    buildJSON,
+    downloadJSON,
+    loadJSON,
+    clearAll,
+    autoSave,
+    autoLoad,
+    scheduleTextAutoSave,
+    flushScheduledAutoSave,
+  };
 };

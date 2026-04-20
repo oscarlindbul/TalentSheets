@@ -489,6 +489,8 @@
     updateBridgesFor,
     expandPage,
     autoSave() { autoSave(); },
+    scheduleTextAutoSave() { scheduleTextAutoSave(); },
+    flushScheduledAutoSave() { flushScheduledAutoSave(); },
     clearSideConnector,
     detectSideExtended,
     detectSideConnectorHit,
@@ -1166,7 +1168,11 @@
     input.addEventListener('input', () => {
       tf.text = input.innerHTML;
       autoSizeInput();
-      autoSave();
+      scheduleTextAutoSave();
+    });
+
+    input.addEventListener('blur', () => {
+      flushScheduledAutoSave();
     });
 
     // Focus tracking — update toolbar to show this field's font/size
@@ -1647,8 +1653,16 @@
     clearObjectSelection,
   };
 
-  const { buildJSON, downloadJSON, loadJSON, clearAll, autoSave, autoLoad } =
-    window.createJsonUtilsModule(jsonEnv);
+  const {
+    buildJSON,
+    downloadJSON,
+    loadJSON,
+    clearAll,
+    autoSave,
+    autoLoad,
+    scheduleTextAutoSave,
+    flushScheduledAutoSave,
+  } = window.createJsonUtilsModule(jsonEnv);
 
   /* ------------------------------------------------------------------ */
   /*  PDF Export module initialisation  (pdf-export.js)                   */
@@ -1797,6 +1811,8 @@
     clearPersistentSelection,
     applyFontToLegend,
     autoSave,
+    scheduleTextAutoSave,
+    flushScheduledAutoSave,
     expandPage,
     applyTheme,
     downloadJSON,
