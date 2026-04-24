@@ -546,10 +546,16 @@
   function snapDashedLineEnd(startX, startY, endX, endY) {
     const dx = endX - startX;
     const dy = endY - startY;
-    const horizontalThreshold = Math.tan(1 * Math.PI / 180);
+    const axisSnapThreshold = Math.tan(1 * Math.PI / 180);
 
-    if (Math.abs(dx) > 0 && Math.abs(dy / dx) <= horizontalThreshold) {
+    // Near-horizontal drag: snap Y to start Y
+    if (Math.abs(dx) > 0 && Math.abs(dy / dx) <= axisSnapThreshold) {
       return [endX, startY];
+    }
+
+    // Near-vertical drag: snap X to start X
+    if (Math.abs(dy) > 0 && Math.abs(dx / dy) <= axisSnapThreshold) {
+      return [startX, endY];
     }
 
     return [endX, endY];
