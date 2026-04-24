@@ -153,21 +153,30 @@ window.createJsonUtilsModule = function (env) {
   /* ------------------------------------------------------------------ */
 
   function clearAll() {
-    env.boxes.forEach(b => {
-      if (env.twoBoxShapes[b.id]) {
-        env.two.remove(env.twoBoxShapes[b.id]);
-      }
-      delete env.twoBoxShapes[b.id];
-      env.clearSideConnector(b.id);
+    // Remove all tracked shapes from Two.js
+    Object.values(env.twoBoxShapes).forEach(shape => {
+      if (shape) env.two.remove(shape);
     });
-    env.bridges.forEach(b => {
-      if (env.twoBridgeLines[b.id]) env.two.remove(env.twoBridgeLines[b.id]);
-      delete env.twoBridgeLines[b.id];
+    Object.values(env.twoBridgeLines).forEach(shape => {
+      if (shape) env.two.remove(shape);
     });
-    env.dashedLines.forEach(line => {
-      if (env.twoDashedLines[line.id]) env.two.remove(env.twoDashedLines[line.id]);
-      delete env.twoDashedLines[line.id];
+    Object.values(env.twoDashedLines).forEach(shape => {
+      if (shape) env.two.remove(shape);
     });
+
+    // Two.js group can still retain stale dashed children not present in map
+    if (env.dashedLineGroup && Array.isArray(env.dashedLineGroup.children)) {
+      const children = env.dashedLineGroup.children.slice();
+      children.forEach(shape => {
+        env.dashedLineGroup.remove(shape);
+        env.two.remove(shape);
+      });
+    }
+
+    // Clear all shape tracking maps
+    Object.keys(env.twoBoxShapes).forEach(key => delete env.twoBoxShapes[key]);
+    Object.keys(env.twoBridgeLines).forEach(key => delete env.twoBridgeLines[key]);
+    Object.keys(env.twoDashedLines).forEach(key => delete env.twoDashedLines[key]);
 
     env.boxes      = [];
     env.bridges    = [];

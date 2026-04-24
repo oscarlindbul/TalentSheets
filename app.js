@@ -765,7 +765,8 @@
 
   function renderDashedLine(dashedLine) {
     if (twoDashedLines[dashedLine.id]) {
-      removeTwoShape(twoDashedLines[dashedLine.id]);
+        two.remove(twoDashedLines[dashedLine.id]);
+      //removeTwoShape(twoDashedLines[dashedLine.id]);
     }
 
     const color = darkMode ? lighten(bridgeColor) : bridgeColor;
@@ -776,7 +777,6 @@
     dashedLineGroup.add(line);
 
     twoDashedLines[dashedLine.id] = line;
-    bridges.forEach(b => renderBridge(b));
     two.update();
   }
 
@@ -784,7 +784,6 @@
     if (!previewDashedLine) return;
     removeTwoShape(previewDashedLine);
     previewDashedLine = null;
-    bridges.forEach(b => renderBridge(b));
     two.update();
   }
 
@@ -805,7 +804,6 @@
     dashedLineGroup.add(line);
     previewDashedLine = line;
 
-    bridges.forEach(b => renderBridge(b));
     two.update();
   }
 
@@ -847,7 +845,6 @@
       delete twoDashedLines[id];
     }
     dashedLines = dashedLines.filter(line => line.id !== id);
-    bridges.forEach(b => renderBridge(b));
     two.update();
     autoSave();
   }
@@ -1574,6 +1571,7 @@
     twoBoxShapes,
     twoBridgeLines,
     twoDashedLines,
+    dashedLineGroup,
     // DOM refs
     fontSelect,
     fontSizeInput,
