@@ -314,18 +314,18 @@ window.createEventsModule = function (env) {
   /* ------------------------------------------------------------------ */
   /*  Insert Symbol dropdown                                             */
   /* ------------------------------------------------------------------ */
-
-  const SYMBOL_MAP = {
-    ability:     { char: '\u25C6', color: '#4caf50', cls: 'die-sym die-diamond' },
-    difficulty:  { char: '\u25C6', color: '#7b1fa2', cls: 'die-sym die-diamond' },
-    proficiency: { char: '\u2B23', color: '#fdd835', cls: 'die-sym die-hex' },
-    challenge:   { char: '\u2B23', color: '#d32f2f', cls: 'die-sym die-hex' },
-    boost:       { char: '\u25A0', color: '#00bcd4', cls: 'die-sym die-square' },
-    setback:     { char: '\u25A0', color: '#212121', cls: 'die-sym die-square' },
-  };
-
+  const IMAGE_DICE_ENDPOINT = '/api/genesys-dice';
   const IMAGE_SYMBOLS_ENDPOINT = '/api/genesys-symbols';
+  let imageDiceLoaded = false;
   let imageSymbolsLoaded = false;
+  const ORDERED_IMAGE_DICE = [
+    'boost',
+    'setback',
+    'ability',
+    'difficulty',
+    'proficiency',
+    'challenge',
+  ];
   const ORDERED_IMAGE_SYMBOLS = [
     'advantage',
     'threat',
@@ -351,14 +351,14 @@ window.createEventsModule = function (env) {
       .replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
-  function renderImageSymbolMenu(entries) {
-    env.insertImageSymbolMenu.innerHTML = '';
+  function renderImageMenu(entries, menuEl, orderedKeys) {
+    menuEl.innerHTML = '';
 
     if (!Array.isArray(entries) || entries.length === 0) {
       const emptyBtn = document.createElement('button');
       emptyBtn.textContent = 'No Symbols Found';
       emptyBtn.disabled = true;
-      env.insertImageSymbolMenu.appendChild(emptyBtn);
+      menuEl.appendChild(emptyBtn);
       return;
     }
 
@@ -370,7 +370,7 @@ window.createEventsModule = function (env) {
     });
 
     const orderedEntries = [];
-    ORDERED_IMAGE_SYMBOLS.forEach((key) => {
+    orderedKeys.forEach((key) => {
       const entry = byKey.get(key);
       if (!entry) return;
       orderedEntries.push({ key, entry });
@@ -406,11 +406,26 @@ window.createEventsModule = function (env) {
           alt: label,
           cls: `inline-symbol-image inline-symbol-${key}`,
         });
-        env.insertImageSymbolMenu.classList.remove('open');
+        menuEl.classList.remove('open');
       });
 
-      env.insertImageSymbolMenu.appendChild(btn);
+      menuEl.appendChild(btn);
     });
+  }
+
+  async function ensureImageDiceLoaded() {
+    if (imageDiceLoaded) return;
+
+    try {
+      const res = await fetch(IMAGE_DICE_ENDPOINT, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Request failed');
+      const entries = await res.json();
+      renderImageMenu(entries, env.insertSymbolMenu, ORDERED_IMAGE_DICE);
+    } catch (_) {
+      renderImageMenu([], env.insertSymbolMenu, ORDERED_IMAGE_DICE);
+    }
+
+    imageDiceLoaded = true;
   }
 
   async function ensureImageSymbolsLoaded() {
@@ -420,17 +435,18 @@ window.createEventsModule = function (env) {
       const res = await fetch(IMAGE_SYMBOLS_ENDPOINT, { cache: 'no-store' });
       if (!res.ok) throw new Error('Request failed');
       const entries = await res.json();
-      renderImageSymbolMenu(entries);
+      renderImageMenu(entries, env.insertImageSymbolMenu, ORDERED_IMAGE_SYMBOLS);
     } catch (_) {
-      renderImageSymbolMenu([]);
+      renderImageMenu([], env.insertImageSymbolMenu, ORDERED_IMAGE_SYMBOLS);
     }
 
     imageSymbolsLoaded = true;
   }
 
-  env.btnInsertSymbol.addEventListener('click', (e) => {
+  env.btnInsertSymbol.addEventListener('click', async (e) => {
     e.stopPropagation();
     env.insertImageSymbolMenu.classList.remove('open');
+    await ensureImageDiceLoaded();
     env.insertSymbolMenu.classList.toggle('open');
   });
 
@@ -439,17 +455,6 @@ window.createEventsModule = function (env) {
     env.insertSymbolMenu.classList.remove('open');
     await ensureImageSymbolsLoaded();
     env.insertImageSymbolMenu.classList.toggle('open');
-  });
-
-  env.insertSymbolMenu.querySelectorAll('button[data-symbol]').forEach(btn => {
-    btn.addEventListener('mousedown', (e) => {
-      // Use mousedown so the focused text field doesn't blur before insertion
-      e.preventDefault();
-      e.stopPropagation();
-      const sym = SYMBOL_MAP[btn.dataset.symbol];
-      if (sym) env.insertAtCaret(sym.char, sym.color, sym.cls);
-      env.insertSymbolMenu.classList.remove('open');
-    });
   });
 
   env.btnTheme.addEventListener('click', () => {

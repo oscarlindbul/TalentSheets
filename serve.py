@@ -16,25 +16,26 @@ import os
 import sys
 import json
 from urllib.parse import urlparse
-import webbrowser
 
 
 class TalentSheetHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
 
-        if path == "/api/genesys-symbols":
-            genesys_dir = os.path.join(os.getcwd(), "resources", "Genesys")
+        if path in ("/api/genesys-symbols", "/api/genesys-dice"):
+            subfolder = "Symbols" if path == "/api/genesys-symbols" else "Dice"
+            base_dir = os.path.join(os.getcwd(), "resources", "Genesys", subfolder)
             symbols = []
 
-            if os.path.isdir(genesys_dir):
-                for filename in sorted(os.listdir(genesys_dir), key=str.lower):
-                    if filename.lower().endswith(".png"):
-                        symbols.append({
-                            "filename": filename,
-                            "name": os.path.splitext(filename)[0],
-                            "path": f"resources/Genesys/{filename}",
-                        })
+            if os.path.isdir(base_dir):
+                for filename in sorted(os.listdir(base_dir), key=str.lower):
+                    if not filename.lower().endswith(".png"):
+                        continue
+                    symbols.append({
+                        "filename": filename,
+                        "name": os.path.splitext(filename)[0],
+                        "path": f"resources/Genesys/{subfolder}/{filename}",
+                    })
 
             payload = json.dumps(symbols).encode("utf-8")
             self.send_response(200)
@@ -58,7 +59,7 @@ def main():
     parser.add_argument(
         "--no-browser",
         action="store_true",
-        help="Don't open a browser automatically",
+        help="Deprecated; browser auto-open is disabled by default",
     )
     args = parser.parse_args()
 
@@ -72,9 +73,6 @@ def main():
         url = f"http://localhost:{args.port}"
         print(f"Serving Talent Sheet Generator at {url}")
         print("Press Ctrl+C to stop.\n")
-
-        if not args.no_browser:
-            webbrowser.open(url)
 
         try:
             httpd.serve_forever()

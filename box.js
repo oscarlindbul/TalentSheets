@@ -17,6 +17,12 @@ window.createBoxModule = function (env) {
 
   // Inline symbol image heights in em (scale with text size in editable regions).
   const INLINE_SYMBOL_IMAGE_HEIGHTS_EM = {
+    boost: 1,
+    setback: 1,
+    ability: 1,
+    difficulty: 1,
+    proficiency: 1,
+    challenge: 1,
     advantage: 1.1,
     threat: 1.3,
     success: 1.35,
