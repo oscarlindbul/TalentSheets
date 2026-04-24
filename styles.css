@@ -828,14 +828,24 @@ body.pdf-exporting .box-add-bg {
 .dropdown-menu button[data-type="skill"]   { color: #7b4fbf; }
 
 /* --- Insert-symbol dropdown --- */
-#insert-symbol-wrapper {
+#insert-symbol-wrapper,
+#insert-image-symbol-wrapper {
   position: relative;
   display: inline-block;
 }
 
-#btn-insert-symbol:disabled {
+#btn-insert-symbol:disabled,
+#btn-insert-image-symbol:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.symbol-swatch-img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  vertical-align: middle;
+  margin-right: 4px;
 }
 
 .die-swatch {
@@ -878,6 +888,40 @@ body.pdf-exporting .box-add-bg {
 .die-square {
   /* ■ glyph is visually small; bump font-size to match text height. */
   font-size: 1.4em !important;
+}
+
+/* Inline PNG symbols inserted in editable text */
+.inline-symbol-image {
+  display: inline-block;
+  height: calc(var(--inline-symbol-default-height-em, 1.2) * 1em);
+  width: auto;
+  object-fit: contain;
+  vertical-align: -0.2em;
+  margin: 0 0.08em;
+}
+
+.inline-symbol-advantage {
+  height: calc(var(--inline-symbol-advantage-height-em, 1.2) * 1em);
+}
+
+.inline-symbol-threat {
+  height: calc(var(--inline-symbol-threat-height-em, 1.2) * 1em);
+}
+
+.inline-symbol-success {
+  height: calc(var(--inline-symbol-success-height-em, 1.2) * 1em);
+}
+
+.inline-symbol-failure {
+  height: calc(var(--inline-symbol-failure-height-em, 1.2) * 1em);
+}
+
+.inline-symbol-triumph {
+  height: calc(var(--inline-symbol-triumph-height-em, 1.35) * 1em);
+}
+
+.inline-symbol-despair {
+  height: calc(var(--inline-symbol-despair-height-em, 1.35) * 1em);
 }
 
 /* Legend font inherits globalFont via JS */

@@ -293,6 +293,7 @@ window.createEventsModule = function (env) {
   document.addEventListener('click', () => {
     env.addTalentMenu.classList.remove('open');
     env.insertSymbolMenu.classList.remove('open');
+    env.insertImageSymbolMenu.classList.remove('open');
   });
 
   document.addEventListener('mousedown', (e) => {
@@ -323,9 +324,121 @@ window.createEventsModule = function (env) {
     setback:     { char: '\u25A0', color: '#212121', cls: 'die-sym die-square' },
   };
 
+  const IMAGE_SYMBOLS_ENDPOINT = '/api/genesys-symbols';
+  let imageSymbolsLoaded = false;
+  const ORDERED_IMAGE_SYMBOLS = [
+    'advantage',
+    'threat',
+    'success',
+    'failure',
+    'triumph',
+    'despair',
+  ];
+
+  function symbolKeyFromFilename(filename) {
+    return String(filename || '')
+      .replace(/\.[^.]+$/, '')
+      .trim()
+      .toLowerCase();
+  }
+
+  function symbolLabelFromFilename(filename) {
+    return String(filename || '')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function renderImageSymbolMenu(entries) {
+    env.insertImageSymbolMenu.innerHTML = '';
+
+    if (!Array.isArray(entries) || entries.length === 0) {
+      const emptyBtn = document.createElement('button');
+      emptyBtn.textContent = 'No Symbols Found';
+      emptyBtn.disabled = true;
+      env.insertImageSymbolMenu.appendChild(emptyBtn);
+      return;
+    }
+
+    const byKey = new Map();
+    entries.forEach((entry) => {
+      const key = symbolKeyFromFilename(entry.filename || entry.path || entry.name);
+      if (!key) return;
+      byKey.set(key, entry);
+    });
+
+    const orderedEntries = [];
+    ORDERED_IMAGE_SYMBOLS.forEach((key) => {
+      const entry = byKey.get(key);
+      if (!entry) return;
+      orderedEntries.push({ key, entry });
+      byKey.delete(key);
+    });
+
+    // Keep any additional files after the hard-coded ordered symbols.
+    Array.from(byKey.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .forEach(([key, entry]) => orderedEntries.push({ key, entry }));
+
+    orderedEntries.forEach(({ key, entry }) => {
+      const imgPath = entry.path || ('resources/Genesys/' + entry.filename);
+      const label = entry.name || symbolLabelFromFilename(entry.filename || entry.path);
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+
+      const swatch = document.createElement('img');
+      swatch.className = 'symbol-swatch-img';
+      swatch.src = imgPath;
+      swatch.alt = '';
+      swatch.draggable = false;
+
+      btn.appendChild(swatch);
+      btn.appendChild(document.createTextNode(label));
+
+      btn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        env.insertAtCaret({
+          imageSrc: imgPath,
+          alt: label,
+          cls: `inline-symbol-image inline-symbol-${key}`,
+        });
+        env.insertImageSymbolMenu.classList.remove('open');
+      });
+
+      env.insertImageSymbolMenu.appendChild(btn);
+    });
+  }
+
+  async function ensureImageSymbolsLoaded() {
+    if (imageSymbolsLoaded) return;
+
+    try {
+      const res = await fetch(IMAGE_SYMBOLS_ENDPOINT, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Request failed');
+      const entries = await res.json();
+      renderImageSymbolMenu(entries);
+    } catch (_) {
+      renderImageSymbolMenu([]);
+    }
+
+    imageSymbolsLoaded = true;
+  }
+
   env.btnInsertSymbol.addEventListener('click', (e) => {
     e.stopPropagation();
+    env.insertImageSymbolMenu.classList.remove('open');
     env.insertSymbolMenu.classList.toggle('open');
+  });
+
+  env.btnInsertImageSymbol.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    env.insertSymbolMenu.classList.remove('open');
+    await ensureImageSymbolsLoaded();
+    env.insertImageSymbolMenu.classList.toggle('open');
   });
 
   env.insertSymbolMenu.querySelectorAll('button[data-symbol]').forEach(btn => {

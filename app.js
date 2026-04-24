@@ -118,6 +118,8 @@
   const fontUnderlineBtn = document.getElementById('font-underline-btn');
   const btnInsertSymbol  = document.getElementById('btn-insert-symbol');
   const insertSymbolMenu = document.getElementById('insert-symbol-menu');
+  const btnInsertImageSymbol = document.getElementById('btn-insert-image-symbol');
+  const insertImageSymbolMenu = document.getElementById('insert-image-symbol-menu');
   const sheetLegend   = document.getElementById('sheet-legend');
   const legendContent = sheetLegend.querySelector('.legend-content');
   const legendTitle   = sheetLegend.querySelector('.legend-title');
@@ -1274,6 +1276,7 @@
     if (t.isContentEditable) {
       lastFocusedInput = t;
       btnInsertSymbol.disabled = false;
+      btnInsertImageSymbol.disabled = false;
     }
   });
 
@@ -1288,12 +1291,13 @@
   // the insert-symbol button/menu (so clicking Dice doesn't disable itself)
   document.addEventListener('focusin', (e) => {
     const t = e.target;
-    if (t.closest('#insert-symbol-wrapper')) return;  // clicking Dice button/menu
+    if (t.closest('#insert-symbol-wrapper, #insert-image-symbol-wrapper')) return;
     if (t.closest('#toolbar') && !t.isContentEditable) {
       // Focused a non-text toolbar control — clear last input
       if (!overlay.contains(t)) {
         lastFocusedInput = null;
         btnInsertSymbol.disabled = true;
+        btnInsertImageSymbol.disabled = true;
       }
     }
   });
@@ -1302,38 +1306,54 @@
     // If focus is going to the insert-symbol button/menu, keep lastFocusedInput
     setTimeout(() => {
       const active = document.activeElement;
-      if (active && active.closest('#insert-symbol-wrapper')) return;
+      if (active && active.closest('#insert-symbol-wrapper, #insert-image-symbol-wrapper')) return;
       if (!overlay.contains(active) && lastFocusedInput) {
         lastFocusedInput = null;
         btnInsertSymbol.disabled = true;
+        btnInsertImageSymbol.disabled = true;
       }
     }, 0);
   });
 
   /**
-   * Insert a symbol (optionally colored/classed) at the caret in the
-   * last-focused contentEditable element.
-   * @param {string} text  – the character(s) to insert
-   * @param {string} [color] – optional CSS color for the span
-   * @param {string} [cls]   – optional CSS class(es) for the span
+   * Insert text symbol or inline image at the caret in the last-focused
+   * contentEditable element.
+   * @param {string|Object} content - text to insert, or { imageSrc, alt, cls }
+   * @param {string} [color] - optional CSS color for text span
+   * @param {string} [cls] - optional CSS class(es)
    */
-  function insertAtCaret(text, color, cls) {
+  function insertAtCaret(content, color, cls) {
     const el = lastFocusedInput;
     if (!el) return;
     el.focus();
     if (el.isContentEditable) {
-      const makeSpan = () => {
+      const makeTextSpan = () => {
         const s = document.createElement('span');
         if (color) s.style.color = color;
         if (cls)   s.className = cls;
-        s.textContent = text;
+        s.textContent = String(content || '');
         return s;
       };
+
+      const makeNode = () => {
+        if (content && typeof content === 'object' && content.imageSrc) {
+          const img = document.createElement('img');
+          img.src = content.imageSrc;
+          img.alt = content.alt || '';
+          img.draggable = false;
+          img.className = (content.cls || cls || 'inline-symbol-image').trim();
+          return img;
+        }
+
+        if (color || cls) return makeTextSpan();
+        return document.createTextNode(String(content || ''));
+      };
+
       const sel = window.getSelection();
       if (sel.rangeCount) {
         const range = sel.getRangeAt(0);
         range.deleteContents();
-        const node = (color || cls) ? makeSpan() : document.createTextNode(text);
+        const node = makeNode();
         range.insertNode(node);
         // Move caret after the inserted node
         range.setStartAfter(node);
@@ -1341,7 +1361,7 @@
         sel.removeAllRanges();
         sel.addRange(range);
       } else {
-        const node = (color || cls) ? makeSpan() : document.createTextNode(text);
+        const node = makeNode();
         el.appendChild(node);
       }
       el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1735,6 +1755,8 @@
     fontUnderlineBtn,
     btnInsertSymbol,
     insertSymbolMenu,
+    btnInsertImageSymbol,
+    insertImageSymbolMenu,
     insertAtCaret,
     colorStroke,
     colorFill,

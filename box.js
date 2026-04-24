@@ -15,6 +15,23 @@
 window.createBoxModule = function (env) {
   'use strict';
 
+  // Inline symbol image heights in em (scale with text size in editable regions).
+  const INLINE_SYMBOL_IMAGE_HEIGHTS_EM = {
+    advantage: 1.1,
+    threat: 1.3,
+    success: 1.35,
+    failure: 1.2,
+    triumph: 1.325,
+    despair: 1.4,
+  };
+
+  Object.entries(INLINE_SYMBOL_IMAGE_HEIGHTS_EM).forEach(([key, value]) => {
+    document.documentElement.style.setProperty(
+      `--inline-symbol-${key}-height-em`,
+      String(value)
+    );
+  });
+
   /* ------------------------------------------------------------------ */
   /*  Chamfer helper                                                     */
   /* ------------------------------------------------------------------ */
