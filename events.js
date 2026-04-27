@@ -110,6 +110,8 @@ window.createEventsModule = function (env) {
     env.clearDashedLinePreview();
   }
 
+  let suppressNextOverlayClick = false;
+
   /* ------------------------------------------------------------------ */
   /*  DOM refs (from env)                                                */
   /* ------------------------------------------------------------------ */
@@ -176,6 +178,11 @@ window.createEventsModule = function (env) {
   /* Click on the overlay to start/complete a bridge via hovered side,
      or place a text field in text-place mode */
   overlay.addEventListener('click', (e) => {
+    if (suppressNextOverlayClick) {
+      suppressNextOverlayClick = false;
+      return;
+    }
+
     const rect = pageContainer.getBoundingClientRect();
     const px = (e.clientX - rect.left) / env.currentScale;
     const py = (e.clientY - rect.top)  / env.currentScale;
@@ -387,8 +394,15 @@ window.createEventsModule = function (env) {
     env.insertImageSymbolMenu.classList.remove('open');
   });
 
+  let surfaceSelecting = false;
+  let surfaceMoved = false;
+  let surfaceStartClientX = 0;
+  let surfaceStartClientY = 0;
+
   document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
     if (e.ctrlKey || e.shiftKey) return;
+    if (env.textPlaceMode || env.dashedLinePlaceMode) return;
     if (e.target.closest('#toolbar')) return;
     if (e.target.closest('.talent-box, .text-field')) return;
 
@@ -401,6 +415,36 @@ window.createEventsModule = function (env) {
 
     env.clearObjectSelection();
     clearPendingBridge();
+    env.beginSurfaceSelection(px, py);
+
+    surfaceSelecting = true;
+    surfaceMoved = false;
+    surfaceStartClientX = e.clientX;
+    surfaceStartClientY = e.clientY;
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!surfaceSelecting) return;
+    const rect = pageContainer.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / env.currentScale;
+    const py = (e.clientY - rect.top)  / env.currentScale;
+    env.updateSurfaceSelection(px, py);
+
+    if (!surfaceMoved) {
+      const movedX = Math.abs(e.clientX - surfaceStartClientX);
+      const movedY = Math.abs(e.clientY - surfaceStartClientY);
+      surfaceMoved = movedX > 3 || movedY > 3;
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!surfaceSelecting) return;
+    env.endSurfaceSelection();
+    surfaceSelecting = false;
+    if (surfaceMoved) {
+      suppressNextOverlayClick = true;
+    }
+    surfaceMoved = false;
   });
 
   /* ------------------------------------------------------------------ */

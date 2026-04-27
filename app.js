@@ -84,6 +84,8 @@
   const objectSelectionListeners = new Set();
   let objectClipboard = null;
   let pasteSequence = 0;
+  let selectionSurfaceEl = null;
+  let selectionSurfaceStart = null;
 
   /* ------------------------------------------------------------------ */
   /*  DOM refs                                                           */
@@ -208,22 +210,37 @@
     const m  = PAGE_MARGIN;
     const pw = A1_WIDTH;
     const ph = pageHeight;
+    const pageCount = Math.max(1, Math.ceil(ph / A1_HEIGHT));
 
     const color = darkMode ? '#555' : '#aaa';
-    const lines = [
-      [m, m, pw - m, m],           // top
-      [m, m, m, ph - m],           // left
-      [pw - m, m, pw - m, ph - m], // right
-      [m, ph - m, pw - m, ph - m], // bottom
-    ];
+    const borderColor = darkMode ? '#666' : '#b5b5b5';
 
-    lines.forEach(([x1,y1,x2,y2]) => {
-      const line = two.makeLine(x1, y1, x2, y2);
-      line.stroke    = color;
-      line.linewidth  = 1;
-      line.dashes     = [10, 6];
-      marginShapes.push(line);
-    });
+    for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+      const pageTop = pageIndex * A1_HEIGHT;
+      const pageBottom = pageTop + A1_HEIGHT;
+
+      const marginLines = [
+        [m, pageTop + m, pw - m, pageTop + m],                 // page top margin
+        [m, pageTop + m, m, pageBottom - m],                   // page left margin
+        [pw - m, pageTop + m, pw - m, pageBottom - m],         // page right margin
+        [m, pageBottom - m, pw - m, pageBottom - m],           // page bottom margin
+      ];
+
+      marginLines.forEach(([x1, y1, x2, y2]) => {
+        const line = two.makeLine(x1, y1, x2, y2);
+        line.stroke = color;
+        line.linewidth = 1;
+        line.dashes = [10, 6];
+        marginShapes.push(line);
+      });
+
+      // A subtle full-width line marks each PDF page edge.
+      const pageEdge = two.makeLine(0, pageBottom, pw, pageBottom);
+      pageEdge.stroke = borderColor;
+      pageEdge.linewidth = 1;
+      pageEdge.dashes = [2, 6];
+      marginShapes.push(pageEdge);
+    }
 
     two.update();
   }
@@ -397,6 +414,128 @@
     expandPage();
   }
 
+  function ensureSelectionSurfaceElement() {
+    if (selectionSurfaceEl) return selectionSurfaceEl;
+    selectionSurfaceEl = document.createElement('div');
+    selectionSurfaceEl.className = 'selection-surface';
+    selectionSurfaceEl.style.display = 'none';
+    overlay.appendChild(selectionSurfaceEl);
+    return selectionSurfaceEl;
+  }
+
+  function normalizeSelectionRect(x1, y1, x2, y2) {
+    const left = Math.min(x1, x2);
+    const top = Math.min(y1, y2);
+    const right = Math.max(x1, x2);
+    const bottom = Math.max(y1, y2);
+    return {
+      left,
+      top,
+      right,
+      bottom,
+      width: right - left,
+      height: bottom - top,
+    };
+  }
+
+  function getTextFieldBounds(tf) {
+    const el = document.getElementById('tf-' + tf.id);
+    if (!el) {
+      const fallbackHeight = Math.max(20, (tf.fontSize || globalFontSize || 14) * 1.4);
+      return {
+        left: tf.x,
+        top: tf.y,
+        right: tf.x + Math.max(24, tf.width || 60),
+        bottom: tf.y + fallbackHeight,
+      };
+    }
+
+    const elementRect = el.getBoundingClientRect();
+    const containerRect = pageContainer.getBoundingClientRect();
+    const left = (elementRect.left - containerRect.left) / currentScale;
+    const top = (elementRect.top - containerRect.top) / currentScale;
+    const width = elementRect.width / currentScale;
+    const height = elementRect.height / currentScale;
+
+    return {
+      left,
+      top,
+      right: left + width,
+      bottom: top + height,
+    };
+  }
+
+  function isBoundsInsideSelection(bounds, rect) {
+    return (
+      bounds.left >= rect.left &&
+      bounds.top >= rect.top &&
+      bounds.right <= rect.right &&
+      bounds.bottom <= rect.bottom
+    );
+  }
+
+  function setsEqual(a, b) {
+    if (a.size !== b.size) return false;
+    for (const value of a) {
+      if (!b.has(value)) return false;
+    }
+    return true;
+  }
+
+  function applySurfaceSelection(rect) {
+    const nextBoxIds = new Set();
+    const nextTextFieldIds = new Set();
+
+    boxes.forEach(box => {
+      const bounds = {
+        left: box.x,
+        top: box.y,
+        right: box.x + box.w,
+        bottom: box.y + box.h,
+      };
+      if (isBoundsInsideSelection(bounds, rect)) nextBoxIds.add(box.id);
+    });
+
+    textFields.forEach(tf => {
+      const bounds = getTextFieldBounds(tf);
+      if (isBoundsInsideSelection(bounds, rect)) nextTextFieldIds.add(tf.id);
+    });
+
+    if (setsEqual(selectedBoxIds, nextBoxIds) && setsEqual(selectedTextFieldIds, nextTextFieldIds)) {
+      return;
+    }
+
+    selectedBoxIds = nextBoxIds;
+    selectedTextFieldIds = nextTextFieldIds;
+    syncObjectSelectionStyles();
+  }
+
+  function beginSurfaceSelection(x, y) {
+    const el = ensureSelectionSurfaceElement();
+    selectionSurfaceStart = { x, y };
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.width = '0px';
+    el.style.height = '0px';
+    el.style.display = 'block';
+  }
+
+  function updateSurfaceSelection(x, y) {
+    if (!selectionSurfaceStart) return;
+    const rect = normalizeSelectionRect(selectionSurfaceStart.x, selectionSurfaceStart.y, x, y);
+    const el = ensureSelectionSurfaceElement();
+    el.style.left = rect.left + 'px';
+    el.style.top = rect.top + 'px';
+    el.style.width = rect.width + 'px';
+    el.style.height = rect.height + 'px';
+    applySurfaceSelection(rect);
+  }
+
+  function endSurfaceSelection() {
+    selectionSurfaceStart = null;
+    if (selectionSurfaceEl) selectionSurfaceEl.style.display = 'none';
+  }
+
   function cloneData(value) {
     return JSON.parse(JSON.stringify(value));
   }
@@ -490,6 +629,9 @@
     clearObjectSelection,
     getSelectionSnapshot,
     moveSelectionFromSnapshot,
+    beginSurfaceSelection,
+    updateSurfaceSelection,
+    endSurfaceSelection,
     syncObjectSelectionStyles,
     set focusedTextFieldId(v) { focusedTextFieldId = v; },
     onBoxFocus(box, isCostFocus) {
@@ -936,7 +1078,8 @@
       const bottom = b.y + b.h + PAGE_MARGIN;
       if (bottom > maxY) maxY = bottom;
     });
-    pageHeight = maxY;
+    const requiredPages = Math.max(1, Math.ceil(maxY / A1_HEIGHT));
+    pageHeight = requiredPages * A1_HEIGHT;
     fitToWindow();      // re-applies sizes & viewBox with new pageHeight
     drawPageMargins();
   }
@@ -1851,6 +1994,9 @@
     clearObjectSelection,
     getSelectionSnapshot,
     moveSelectionFromSnapshot,
+    beginSurfaceSelection,
+    updateSurfaceSelection,
+    endSurfaceSelection,
     copyCurrentSelection,
     pasteClipboard,
     deleteCurrentSelection,

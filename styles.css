@@ -225,6 +225,15 @@ body.pdf-exporting .die-diamond {
   /* width, height, transform set by fitToWindow() */
 }
 
+.selection-surface {
+  position: absolute;
+  border: 1px solid #4a90d9;
+  background: rgba(74, 144, 217, 0.16);
+  box-shadow: 0 0 0 1px rgba(74, 144, 217, 0.25) inset;
+  pointer-events: none;
+  z-index: 50;
+}
+
 /* ===== Draggable text fields ===== */
 .text-field {
   position: absolute;
