@@ -15,6 +15,14 @@
 window.createBoxModule = function (env) {
   'use strict';
 
+  const DEFAULT_TALENT_TYPE = 'action';
+  const VALID_TALENT_TYPES = new Set(['action', 'passive', 'skill', 'maneuver', 'incidental']);
+
+  function normalizeTalentType(type) {
+    if (type === 'active') return 'action';
+    return VALID_TALENT_TYPES.has(type) ? type : DEFAULT_TALENT_TYPE;
+  }
+
   // Inline symbol image heights in em (scale with text size in editable regions).
   const INLINE_SYMBOL_IMAGE_HEIGHTS_EM = {
     boost: 1,
@@ -48,7 +56,7 @@ window.createBoxModule = function (env) {
 
   /* ------------------------------------------------------------------ */
   /*  Helper — draw a chamfered rectangle in Two.js                      */
-  /*  Indented (chamfered) corners: lower-left and upper-right           */
+  /*  Indented (chamfered) corner: upper-right                           */
   /* ------------------------------------------------------------------ */
 
   function makeChamferedRect(x, y, w, h, c, strokeColor, fillColor) {
@@ -60,8 +68,7 @@ window.createBoxModule = function (env) {
       new Two.Anchor(x + w - c, y,             0,0,0,0, Two.Commands.line),   // before TR chamfer
       new Two.Anchor(x + w,     y + c,         0,0,0,0, Two.Commands.line),   // after  TR chamfer
       new Two.Anchor(x + w,     y + h,         0,0,0,0, Two.Commands.line),   // BR
-      new Two.Anchor(x + c,     y + h,         0,0,0,0, Two.Commands.line),   // before BL chamfer
-      new Two.Anchor(x,         y + h - c,     0,0,0,0, Two.Commands.line),   // after  BL chamfer
+      new Two.Anchor(x,         y + h,         0,0,0,0, Two.Commands.line),   // BL
     ];
 
     const path = env.two.makePath(anchors, true);
@@ -176,7 +183,7 @@ window.createBoxModule = function (env) {
       w:           env.boxW,
       h:           env.boxH,
       minHeight:   env.boxH,
-      talentType:  'active',
+      talentType:  DEFAULT_TALENT_TYPE,
       name:        'Talent',
       description: '',
       cost:        '0',
@@ -207,6 +214,8 @@ window.createBoxModule = function (env) {
       strokeColor: env.globalStroke,
       fillColor:   env.globalFill,
     }, data);
+
+    box.talentType = normalizeTalentType(box.talentType);
 
     box.nameFont = box.nameFont || box.font || env.globalFont;
     box.nameFontSize = box.nameFontSize || box.fontSize || env.globalFontSize;
@@ -246,7 +255,8 @@ window.createBoxModule = function (env) {
     if (el) el.remove();
 
     el = document.createElement('div');
-    el.className = `talent-box talent-${box.talentType || 'active'}`;
+    box.talentType = normalizeTalentType(box.talentType);
+    el.className = `talent-box talent-${box.talentType || DEFAULT_TALENT_TYPE}`;
     el.id = 'box-' + box.id;
     el.style.left   = box.x + 'px';
     el.style.top    = box.y + 'px';
@@ -261,7 +271,7 @@ window.createBoxModule = function (env) {
     el.classList.toggle('selected', env.isBoxSelected(box.id));
 
     const costFs = box.costFontSize || 13;
-    const triSize = Math.max(56, costFs * 3.8 + 8);   // give the corner cost area more room
+    const triSize = Math.max(56, costFs * 3.8 + 8);
     const checkboxSize = Math.max(16, Math.min(30, Math.round(Math.min(box.w, box.h) * 0.11)));
     el.style.setProperty('--tri-size', triSize + 'px');
     el.style.setProperty('--checkbox-size', checkboxSize + 'px');
@@ -299,14 +309,14 @@ window.createBoxModule = function (env) {
         <input type="checkbox" class="box-checkbox" ${box.acquired ? 'checked' : ''} title="Acquired">
         <div class="box-name" contenteditable="true" role="textbox" data-placeholder="Name" style="${nameStyle}">${box.name}</div>
       </div>
+      <div class="box-ranked-row">
+        <div class="ranked-indicator ${box.ranked ? 'ranked' : ''}" title="Toggle ranked talent">
+          <span class="ranked-cell"></span><span class="ranked-cell"></span>
+          <span class="ranked-cell"></span><span class="ranked-cell"></span>
+        </div>
+      </div>
       <div class="box-body">
         <div class="box-description" contenteditable="true" role="textbox" data-placeholder="Description\u2026" style="${descriptionStyle}">${box.description}</div>
-        <div class="box-ranked-row">
-          <div class="ranked-indicator ${box.ranked ? 'ranked' : ''}" title="Toggle ranked talent">
-            <span class="ranked-cell"></span><span class="ranked-cell"></span>
-            <span class="ranked-cell"></span><span class="ranked-cell"></span>
-          </div>
-        </div>
       </div>
       <span class="box-cost" style="${costStyle}">${box.cost}</span>
       <div class="box-resize-handle" title="Resize"></div>`;
@@ -557,8 +567,8 @@ window.createBoxModule = function (env) {
       const clampedChamfer = Math.min(chamfer(box.w), box.w / 4, box.h / 4);
       el.style.setProperty('--chamfer', clampedChamfer + 'px');
       const costFs = box.costFontSize || 13;
-      const checkboxSize = Math.max(16, Math.min(30, Math.round(Math.min(box.w, box.h) * 0.11)));
       const triSize = Math.max(56, costFs * 3.8 + 8);
+      const checkboxSize = Math.max(16, Math.min(30, Math.round(Math.min(box.w, box.h) * 0.11)));
       el.style.setProperty('--tri-size', triSize + 'px');
       el.style.setProperty('--checkbox-size', checkboxSize + 'px');
       growBoxToFit(box, el, box.minHeight);
@@ -620,10 +630,13 @@ window.createBoxModule = function (env) {
     descArea.style.minHeight = '';
 
     const headerH  = el.querySelector('.box-header').offsetHeight;
-    const rankedH  = el.querySelector('.box-ranked-row') ? el.querySelector('.box-ranked-row').offsetHeight : 0;
-    const pad      = 30; // total vertical padding
+    const bodyEl = el.querySelector('.box-body');
+    const bodyStyles = window.getComputedStyle(bodyEl);
+    const pad =
+      parseFloat(bodyStyles.paddingTop || '0') +
+      parseFloat(bodyStyles.paddingBottom || '0');
     const floorH   = Math.max(60, minHeight != null ? minHeight : (box.minHeight || 60));
-    const newH     = Math.max(floorH, headerH + needed + rankedH + pad);
+    const newH     = Math.max(floorH, headerH + needed + pad);
 
     box.h = newH;
     el.style.height = newH + 'px';

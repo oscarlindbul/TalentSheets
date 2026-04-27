@@ -81,6 +81,7 @@
   let legendSize      = { width: DEFAULT_LEGEND_WIDTH, height: DEFAULT_LEGEND_HEIGHT };
   let selectedBoxIds = new Set();
   let selectedTextFieldIds = new Set();
+  const objectSelectionListeners = new Set();
   let objectClipboard = null;
   let pasteSequence = 0;
 
@@ -96,6 +97,7 @@
   let currentScale    = 1;  // CSS scale factor for fit-to-window
 
   const btnAddBox     = document.getElementById('btn-add-box');
+  const btnAddBoxMenu = document.getElementById('btn-add-box-menu');
   const addTalentMenu = document.getElementById('add-talent-menu');
   const btnTheme      = document.getElementById('btn-toggle-theme');
   const btnAddText    = document.getElementById('btn-add-text');
@@ -272,6 +274,28 @@
     return selectedTextFieldIds.has(id);
   }
 
+  function notifyObjectSelectionChanged() {
+    objectSelectionListeners.forEach(listener => {
+      try {
+        listener();
+      } catch (err) {
+        console.error('Selection listener failed', err);
+      }
+    });
+  }
+
+  function onObjectSelectionChange(listener) {
+    if (typeof listener !== 'function') return function () {};
+    objectSelectionListeners.add(listener);
+    return function () {
+      objectSelectionListeners.delete(listener);
+    };
+  }
+
+  function getSelectedBoxes() {
+    return boxes.filter(box => selectedBoxIds.has(box.id));
+  }
+
   function syncObjectSelectionStyles() {
     boxes.forEach(box => {
       const el = document.getElementById('box-' + box.id);
@@ -281,6 +305,7 @@
       const el = document.getElementById('tf-' + tf.id);
       if (el) el.classList.toggle('selected', selectedTextFieldIds.has(tf.id));
     });
+    notifyObjectSelectionChanged();
   }
 
   function clearObjectSelection() {
@@ -1739,6 +1764,7 @@
     twoCanvas,
     // DOM refs
     btnAddBox,
+    btnAddBoxMenu,
     addTalentMenu,
     btnTheme,
     btnAddText,
@@ -1813,9 +1839,11 @@
     set dashedLinePending(v) { dashedLinePending = v; },
     get textFields()     { return textFields; },
     get focusedTextFieldId() { return focusedTextFieldId; },
+    getSelectedBoxes,
     isBoxSelected,
     isTextFieldSelected,
     hasObjectSelection,
+    onObjectSelectionChange,
     removeObjectSelection,
     addObjectSelection,
     toggleObjectSelection,

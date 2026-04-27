@@ -434,6 +434,7 @@ body.pdf-exporting .die-diamond {
   display: flex;
   flex-direction: column;
   z-index: 2;
+  isolation: isolate;
 }
 
 /* Opaque chamfered background so the box renders in front of bg images */
@@ -448,10 +449,9 @@ body.pdf-exporting .die-diamond {
     calc(100% - var(--chamfer, 14px)) 0,
     100% var(--chamfer, 14px),
     100% 100%,
-    var(--chamfer, 14px) 100%,
-    0 calc(100% - var(--chamfer, 14px))
+    0 100%
   );
-  z-index: -1;
+  z-index: 0;
   pointer-events: none;
 }
 
@@ -472,6 +472,7 @@ body.pdf-exporting .die-diamond {
 
 /* --- Header bar (checkbox + name) with type-coloured background --- */
 .talent-box .box-header {
+  position: relative;
   display: flex;
   align-items: flex-start;
   margin: 1px;
@@ -484,12 +485,16 @@ body.pdf-exporting .die-diamond {
     100% 100%,
     0% 100%
   );
+  z-index: 3;
 }
 
 /* Type colours */
-.talent-active  .box-header { background-color: #c94040; }
+.talent-action .box-header,
+.talent-active .box-header { background-color: #c94040; }
 .talent-passive .box-header { background-color: #3c78b5; }
-.talent-skill   .box-header { background-color: #7b4fbf; }
+.talent-skill .box-header { background-color: #7b4fbf; }
+.talent-maneuver .box-header { background-color: #d9862a; }
+.talent-incidental .box-header { background-color: #3c9b4a; }
 
 /* Skill decoration — double border
 .talent-skill .box-header {
@@ -516,7 +521,7 @@ body.pdf-exporting .die-diamond {
   border-bottom: 1px dashed transparent;
   color: #fff;
   outline: none;
-  padding: 1px calc(var(--chamfer, 14px)) 1px 4px;
+  padding: 1px calc(var(--chamfer, 14px) + 10px) 1px 4px;
   font-family: inherit;
   min-width: 0;
   overflow: hidden;
@@ -532,14 +537,16 @@ body.pdf-exporting .die-diamond {
 }
 .talent-box .box-name:focus { border-bottom-color: rgba(255,255,255,0.6); }
 
-/* --- Body (description + ranked row) --- */
+/* --- Body --- */
 .talent-box .box-body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 6px 10px 24px 10px;   /* bottom padding leaves room for cost */
+  padding: 6px 10px 8px 10px;
   min-height: 0;
   min-width: 0;
+  position: relative;
+  z-index: 3;
 }
 
 /* Description */
@@ -553,7 +560,7 @@ body.pdf-exporting .die-diamond {
   padding: 4px;
   font-family: inherit;
   line-height: 1.4;
-  min-height: 30px;
+  min-height: 0;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -574,27 +581,38 @@ body.pdf-exporting .die-diamond {
   border-color: var(--box-stroke);
 }
 
-/* Ranked row — positioned in the bottom-left chamfer cutout area */
+/* Ranked row — positioned in the box's upper-right chamfer corner */
 .talent-box .box-ranked-row {
   position: absolute;
-  bottom: 0px;
-  left: 0px;
+  top: 1px;
+  right: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--chamfer, 14px);
+  height: var(--chamfer, 14px);
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
 }
 
-/* Ranked 2×2 grid indicator — sized smaller than the chamfer width */
+/* Ranked 2×2 grid indicator */
 .talent-box .ranked-indicator {
-  width: calc(var(--chamfer, 14px)/2 - 2px);
-  height: calc(var(--chamfer, 14px)/2 - 2px);
+  width: calc(var(--chamfer, 14px) * 2.8284);
+  aspect-ratio: 1 / 1;
+  height: auto;
+  line-height: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
-  /* ── cell separation ── adjust this value to change spacing between cells */
   gap: 3px;
   border: 1.5px solid var(--ranked-border);
   border-radius: 2px;
   cursor: pointer;
   opacity: 0.3;
   transition: opacity 0.15s;
+  pointer-events: auto;
 }
 
 .talent-box .ranked-indicator.ranked {
@@ -602,11 +620,13 @@ body.pdf-exporting .die-diamond {
 }
 
 .talent-box .ranked-indicator .ranked-cell {
+  display: block;
+  width: 100%;
+  height: 100%;
   background: var(--ranked-border);
   border-radius: 1px;
 }
 
-/* --- Cost corner triangle (CSS, bottom-right) --- */
 .talent-box::after {
   content: '';
   position: absolute;
@@ -624,7 +644,7 @@ body.pdf-exporting .die-diamond {
   background: #fff;
 }
 
-/* --- Cost text centred inside the triangle area --- */
+/* --- Cost corner triangle (CSS, bottom-right) --- */
 .talent-box .box-cost {
   position: absolute;
   bottom: 0;
@@ -641,7 +661,7 @@ body.pdf-exporting .die-diamond {
   outline: none;
   cursor: text;
   text-align: center;
-  z-index: 3;
+  z-index: 4;
   line-height: 1;
   transform: translate(calc(var(--tri-size, 56px) / 6), calc(var(--tri-size, 56px) / 6)) rotate(-45deg);
   transform-origin: center center;
@@ -787,6 +807,10 @@ body.pdf-exporting .box-add-bg {
   display: inline-block;
 }
 
+#btn-add-box {
+  min-width: 138px;
+}
+
 .dropdown-menu {
   display: none;
   position: absolute;
@@ -823,9 +847,16 @@ body.pdf-exporting .box-add-bg {
   background: var(--btn-hover);
 }
 
-.dropdown-menu button[data-type="active"]  { color: #c94040; }
+.dropdown-menu button.selected-type {
+  background: rgba(74, 144, 217, 0.12);
+  font-weight: 700;
+}
+
+.dropdown-menu button[data-type="action"] { color: #c94040; }
 .dropdown-menu button[data-type="passive"] { color: #3c78b5; }
-.dropdown-menu button[data-type="skill"]   { color: #7b4fbf; }
+.dropdown-menu button[data-type="skill"] { color: #7b4fbf; }
+.dropdown-menu button[data-type="maneuver"] { color: #d9862a; }
+.dropdown-menu button[data-type="incidental"] { color: #3c9b4a; }
 
 /* --- Insert-symbol dropdown --- */
 #insert-symbol-wrapper,

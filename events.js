@@ -11,6 +11,93 @@
 window.createEventsModule = function (env) {
   'use strict';
 
+  const DEFAULT_TALENT_TYPE = 'action';
+  const TALENT_TYPE_META = {
+    action: { label: 'Action' },
+    passive: { label: 'Passive' },
+    skill: { label: 'Skill' },
+    maneuver: { label: 'Maneuver' },
+    incidental: { label: 'Incidental' },
+  };
+  let selectedTalentType = DEFAULT_TALENT_TYPE;
+
+  function normalizeTalentType(type) {
+    if (type === 'active') return 'action';
+    return TALENT_TYPE_META[type] ? type : DEFAULT_TALENT_TYPE;
+  }
+
+  function getTalentTypeLabel(type) {
+    return TALENT_TYPE_META[normalizeTalentType(type)].label;
+  }
+
+  function renderTalentTypeMenuSelection(type) {
+    const activeType = normalizeTalentType(type || selectedTalentType);
+    env.addTalentMenu.querySelectorAll('button[data-type]').forEach(btn => {
+      btn.classList.toggle('selected-type', btn.dataset.type === activeType);
+    });
+  }
+
+  function getSelectedBoxes() {
+    return typeof env.getSelectedBoxes === 'function' ? env.getSelectedBoxes() : [];
+  }
+
+  function getSelectionTypeLabel(selectedBoxes) {
+    if (!selectedBoxes.length) return '';
+    const normalizedTypes = selectedBoxes.map(box => normalizeTalentType(box.talentType));
+    const firstType = normalizedTypes[0];
+    if (normalizedTypes.every(type => type === firstType)) {
+      return getTalentTypeLabel(firstType);
+    }
+    return 'Mixed';
+  }
+
+  function updateAddBoxButtonState() {
+    const selectedBoxes = getSelectedBoxes();
+    if (selectedBoxes.length > 0) {
+      const normalizedTypes = selectedBoxes.map(box => normalizeTalentType(box.talentType));
+      const firstType = normalizedTypes[0];
+      const uniformType = normalizedTypes.every(type => type === firstType) ? firstType : null;
+      if (uniformType) renderTalentTypeMenuSelection(uniformType);
+      env.btnAddBox.textContent = `Change Selected${selectedBoxes.length > 1 ? ` (${selectedBoxes.length})` : ''} \u25be`;
+      env.btnAddBox.title = `Choose a type to apply to ${selectedBoxes.length} selected box${selectedBoxes.length === 1 ? '' : 'es'}`;
+      return;
+    }
+
+    env.btnAddBox.textContent = `+ Add Box \u25be`;
+    env.btnAddBox.title = 'Choose a box type to create';
+  }
+
+  function applyTalentTypeToSelection(type) {
+    const normalizedType = normalizeTalentType(type);
+    let changed = false;
+
+    getSelectedBoxes().forEach(box => {
+      if (normalizeTalentType(box.talentType) === normalizedType) return;
+      box.talentType = normalizedType;
+      env.renderBox(box);
+      changed = true;
+    });
+
+    if (!changed) return;
+    env.reconcileAllBridges();
+    env.autoSave();
+    updateAddBoxButtonState();
+  }
+
+  function handleAddBoxAction(type) {
+    const normalizedType = normalizeTalentType(type || selectedTalentType);
+    const selectedBoxes = getSelectedBoxes();
+    if (selectedBoxes.length > 0) {
+      applyTalentTypeToSelection(normalizedType);
+      return;
+    }
+
+    const pos = env.findFreePosition();
+    env.createBox({ x: pos.x, y: pos.y, talentType: normalizedType });
+    env.expandPage();
+    env.autoSave();
+  }
+
   function clearPendingBridge() {
     if (!env.bridgePending) return;
     const prevEl = document.getElementById('box-' + env.bridgePending.boxId);
@@ -280,14 +367,18 @@ window.createEventsModule = function (env) {
   env.addTalentMenu.querySelectorAll('button[data-type]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const ttype = btn.dataset.type;
+      selectedTalentType = normalizeTalentType(btn.dataset.type);
+      renderTalentTypeMenuSelection();
       env.addTalentMenu.classList.remove('open');
-      const pos = env.findFreePosition();
-      env.createBox({ x: pos.x, y: pos.y, talentType: ttype });
-      env.expandPage();
-      env.autoSave();
+      handleAddBoxAction(selectedTalentType);
     });
   });
+
+  if (typeof env.onObjectSelectionChange === 'function') {
+    env.onObjectSelectionChange(updateAddBoxButtonState);
+  }
+  renderTalentTypeMenuSelection();
+  updateAddBoxButtonState();
 
   // Close dropdown when clicking elsewhere
   document.addEventListener('click', () => {
@@ -298,6 +389,7 @@ window.createEventsModule = function (env) {
 
   document.addEventListener('mousedown', (e) => {
     if (e.ctrlKey || e.shiftKey) return;
+    if (e.target.closest('#toolbar')) return;
     if (e.target.closest('.talent-box, .text-field')) return;
 
     const rect = pageContainer.getBoundingClientRect();

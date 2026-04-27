@@ -21,7 +21,14 @@ window.createPdfExportModule = function (env) {
   }
 
   /* Talent-type header colours */
-  const HEADER_COLORS = { active: '#c94040', passive: '#3c78b5', skill: '#7b4fbf' };
+  const HEADER_COLORS = {
+    action: '#c94040',
+    active: '#c94040',
+    passive: '#3c78b5',
+    skill: '#7b4fbf',
+    maneuver: '#d9862a',
+    incidental: '#3c9b4a',
+  };
 
   async function exportPDF() {
     // A1 dimensions in mm

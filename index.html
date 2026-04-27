@@ -10,11 +10,13 @@
   <!-- Toolbar -->
   <div id="toolbar">
     <div id="add-talent-wrapper">
-      <button id="btn-add-box" title="Add Talent Box">&#43; Add Talent &#9662;</button>
+      <button id="btn-add-box" title="Choose box type">&#43; Add Box &#9662;</button>
       <div id="add-talent-menu" class="dropdown-menu">
-        <button data-type="active">&#9632; Active</button>
+        <button data-type="action">&#9632; Action</button>
         <button data-type="passive">&#9632; Passive</button>
         <button data-type="skill">&#9632; Skill</button>
+        <button data-type="maneuver">&#9632; Maneuver</button>
+        <button data-type="incidental">&#9632; Incidental</button>
       </div>
     </div>
     <div id="insert-symbol-wrapper">
@@ -80,9 +82,11 @@
       <div id="sheet-legend">
         <div class="legend-content">
           <div class="legend-title">Legend</div>
-          <div class="legend-item"><span class="legend-swatch" style="background:#c94040"></span> Active Talent</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:#c94040"></span> Action Talent</div>
           <div class="legend-item"><span class="legend-swatch" style="background:#3c78b5"></span> Passive Talent</div>
           <div class="legend-item"><span class="legend-swatch legend-swatch-skill" style="background:#7b4fbf"></span> Skill</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:#d9862a"></span> Maneuver</div>
+          <div class="legend-item"><span class="legend-swatch" style="background:#3c9b4a"></span> Incidental</div>
           <div class="legend-item"><input type="checkbox" disabled> Acquired</div>
           <div class="legend-item"><span class="legend-ranked"><span></span><span></span><span></span><span></span></span> Ranked Talent</div>
           <div class="legend-item"><span class="legend-line"></span> Spec Pathway</div>
